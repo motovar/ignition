@@ -39,6 +39,7 @@ static EGLDisplay s_egl_display = EGL_NO_DISPLAY;
 static EGLConfig s_egl_config;
 static EGLContext s_egl_context = EGL_NO_CONTEXT;
 static EGLSurface s_egl_surface = EGL_NO_SURFACE;
+static EGLSurface s_egl_idle = EGL_NO_SURFACE;  /* 1x1 pbuffer, see bind_idle */
 static int s_width, s_height;
 static int s_resumed;
 static int s_quit;
@@ -59,23 +60,56 @@ u32 plat_time_ms(void)
 
 /* ------------------------------------------------------------ EGL */
 
+/* Without a window (Home, Back, a locked screen) the context stays
+ * current, on a 1x1 pbuffer, or surfaceless if that cannot be made. The
+ * game pumps events from inside its frame (input_poll), so the window can
+ * go away between two GL calls of one frame: with no current context
+ * they would be lost, and the textures and canvases the game keeps
+ * would come back half drawn, then black. */
+static void bind_idle(void)
+{
+    if (s_egl_context != EGL_NO_CONTEXT
+        && !eglMakeCurrent(s_egl_display, s_egl_idle, s_egl_idle, s_egl_context)) {
+        fprintf(stderr, "ignition: cannot keep the context current (0x%x)\n", eglGetError());
+    }
+}
+
+static void query_size(void)
+{
+    if (s_egl_surface != EGL_NO_SURFACE) {
+        eglQuerySurface(s_egl_display, s_egl_surface, EGL_WIDTH, &s_width);
+        eglQuerySurface(s_egl_display, s_egl_surface, EGL_HEIGHT, &s_height);
+    }
+}
+
 static void make_surface(void)
 {
+    EGLSurface surface;
+
     if (s_app->window == NULL || s_egl_context == EGL_NO_CONTEXT
         || s_egl_surface != EGL_NO_SURFACE) {
         return;
     }
-    s_egl_surface = eglCreateWindowSurface(s_egl_display, s_egl_config, s_app->window, NULL);
-    eglMakeCurrent(s_egl_display, s_egl_surface, s_egl_surface, s_egl_context);
+    surface = eglCreateWindowSurface(s_egl_display, s_egl_config, s_app->window, NULL);
+    if (surface == EGL_NO_SURFACE) {
+        fprintf(stderr, "ignition: no window surface (0x%x)\n", eglGetError());
+        return;
+    }
+    if (!eglMakeCurrent(s_egl_display, surface, surface, s_egl_context)) {
+        fprintf(stderr, "ignition: cannot use the window surface (0x%x)\n", eglGetError());
+        eglDestroySurface(s_egl_display, surface);
+        bind_idle();
+        return;
+    }
+    s_egl_surface = surface;
     eglSwapInterval(s_egl_display, 1);
-    eglQuerySurface(s_egl_display, s_egl_surface, EGL_WIDTH, &s_width);
-    eglQuerySurface(s_egl_display, s_egl_surface, EGL_HEIGHT, &s_height);
+    query_size();
 }
 
 static void drop_surface(void)
 {
     if (s_egl_surface != EGL_NO_SURFACE) {
-        eglMakeCurrent(s_egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        bind_idle();
         eglDestroySurface(s_egl_display, s_egl_surface);
         s_egl_surface = EGL_NO_SURFACE;
     }
@@ -231,6 +265,10 @@ static void on_command(struct android_app *app, int32_t cmd)
     case APP_CMD_TERM_WINDOW:
         drop_surface();
         break;
+    case APP_CMD_WINDOW_RESIZED:
+    case APP_CMD_CONFIG_CHANGED:
+        query_size();
+        break;
     case APP_CMD_RESUME:
         s_resumed = 1;
         break;
@@ -275,11 +313,13 @@ void plat_window_size(int width, int height, int *old_width, int *old_height)
 
 int plat_window_open(const char *title, int width, int height, int fullscreen)
 {
-    static const EGLint config_attrs[] = {
-        EGL_RENDERABLE_TYPE, 0x40 /* EGL_OPENGL_ES3_BIT */, EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+    EGLint config_attrs[] = {
+        EGL_RENDERABLE_TYPE, 0x40 /* EGL_OPENGL_ES3_BIT */,
+        EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
         EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_DEPTH_SIZE, 24, EGL_NONE
     };
     static const EGLint context_attrs[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
+    static const EGLint idle_attrs[] = { EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE };
     EGLint n = 0;
 
     (void)title;
@@ -296,14 +336,23 @@ int plat_window_open(const char *title, int width, int height, int fullscreen)
     s_egl_display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     eglInitialize(s_egl_display, NULL, NULL);
     if (!eglChooseConfig(s_egl_display, config_attrs, &s_egl_config, 1, &n) || n == 0) {
-        fprintf(stderr, "ignition: no EGL configuration for OpenGL ES 3\n");
-        return 0;
+        /* No configuration with a pbuffer too: window only, and the
+         * context idles surfaceless. */
+        config_attrs[3] = EGL_WINDOW_BIT;
+        if (!eglChooseConfig(s_egl_display, config_attrs, &s_egl_config, 1, &n) || n == 0) {
+            fprintf(stderr, "ignition: no EGL configuration for OpenGL ES 3\n");
+            return 0;
+        }
     }
     s_egl_context = eglCreateContext(s_egl_display, s_egl_config, EGL_NO_CONTEXT, context_attrs);
     if (s_egl_context == EGL_NO_CONTEXT) {
         fprintf(stderr, "ignition: no OpenGL ES 3 context\n");
         return 0;
     }
+    if (config_attrs[3] & EGL_PBUFFER_BIT) {
+        s_egl_idle = eglCreatePbufferSurface(s_egl_display, s_egl_config, idle_attrs);
+    }
+    bind_idle();
     make_surface();
     return 1;
 }
@@ -324,7 +373,15 @@ void plat_present(void)
         return;
     }
     touch_draw(s_width, s_height);
-    eglSwapBuffers(s_egl_display, s_egl_surface);
+    if (!eglSwapBuffers(s_egl_display, s_egl_surface)) {
+        EGLint error = eglGetError();
+
+        fprintf(stderr, "ignition: swap failed (0x%x)\n", error);
+        if (error == EGL_BAD_SURFACE || error == EGL_BAD_NATIVE_WINDOW) {
+            /* The window went away under the surface: wait for a new one. */
+            drop_surface();
+        }
+    }
 }
 
 void plat_request_quit(void)
@@ -411,6 +468,9 @@ static int run(int (*frame)(void *), void *user)
             continue;
         }
         plat_pump_events();
+        if (s_egl_surface == EGL_NO_SURFACE) {
+            continue;           /* the window went away: wait for it above */
+        }
         if (!frame(user)) {
             plat_request_quit();
         }

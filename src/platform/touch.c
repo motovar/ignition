@@ -137,7 +137,10 @@ void touch_draw(int w, int h)
     }
     on = held(w, h);
     rnd_bind_screen(w, h);
-    rnd_depth(RND_DEPTH_OFF, 0);
+    /* Depth test off, but depth writes stay on, as everywhere else:
+     * glClear honours the depth mask, so leaving it off here would stop
+     * the next frame's depth clears and black out the 3D picture. */
+    rnd_depth(RND_DEPTH_OFF, 1);
     rnd_scissor(0, 0, 0, 0, 0);
     rnd_cull(RND_CULL_OFF);
     rnd_use(RND_OVER);

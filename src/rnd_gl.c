@@ -843,6 +843,10 @@ void rnd_clear(const float *rgba, int depth)
         mask |= GL_COLOR_BUFFER_BIT;
     }
     if (depth) {
+        /* The depth mask is context state and glClear obeys it: make
+         * sure an earlier draw that turned writes off cannot make the
+         * clear a no-op. */
+        glDepthMask(GL_TRUE);
 #if defined(IGN_GLES)
         glClearDepthf(1.0f);
 #else
