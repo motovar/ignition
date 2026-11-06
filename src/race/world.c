@@ -5,6 +5,7 @@
 
 #include <math.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "canvas.h"
@@ -484,6 +485,13 @@ void race_make_world(void)
     make_car_objects();
     r_563d98 = 0;
     sc->gather_radius = g_track == 2 ? 25 : 0;
+    /* What was made, in Default.fil and logcat: obstacles off in the
+     * options leaves every count at 0 for the whole race. */
+    log_printf("race world: track %d, obstacles %d, %d solid, %d moving, %d sounds, %d flares\n",
+               (int)g_track, (int)r_553084, (int)r_54f954, (int)r_552f78, (int)r_563cf0,
+               (int)r_563d78);
+    fprintf(stderr, "ignition: race world: track %d, obstacles %d, %d solid, %d moving\n",
+            (int)g_track, (int)r_553084, (int)r_54f954, (int)r_552f78);
 }
 
 /* An all zero screen: the back buffer's colour 0 shows the 3D. */

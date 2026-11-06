@@ -114,11 +114,13 @@ static u8 *load(const char *name, u32 slack, u32 align, long *size_out)
 
     if (size < 0) {
         log_printf("Error while trying to read %s\n", name);
+        fprintf(stderr, "ignition: cannot read %s (track %d)\n", name, (int)g_track);
         exit(1);
     }
     buf = mem_alloc(g_race_pool, (u32)size + slack);
     g_race_bytes += (s32)(size + slack);
     if (buf == NULL) {
+        fprintf(stderr, "ignition: out of memory loading %s (%ld bytes)\n", name, size);
         mem_out_of_memory();
     }
     if (align > 1) {
@@ -173,6 +175,14 @@ static void read_settings(void)
         g_track = race_cfg(0x0f3);
     } else {
         g_track = s_championship[race_cfg(0x00c) & 3][race_cfg(0x0f3) % 7];
+    }
+    if (g_track < 0 || g_track >= 7) {
+        /* A track the tables do not know (the settings file is read as
+         * it is): names left empty would make every level file missing,
+         * and s_track_cd would be read out of bounds. */
+        fprintf(stderr, "ignition: track %d is not one of the seven, using 0\n", (int)g_track);
+        log_printf("track %d out of range\n", (int)g_track);
+        g_track = 0;
     }
     track_names();
 

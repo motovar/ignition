@@ -18,12 +18,17 @@
 #include <android/log.h>
 #include <android_native_app_glue.h>
 
+#include <dlfcn.h>
+#include <fcntl.h>
+#include <inttypes.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <unwind.h>
 
 #include "app.h"
 #include "dik.h"
@@ -512,6 +517,72 @@ const char *plat_host_pref_dir(void)
     return dir;
 }
 
+/* A crash is written to logcat and to crash.txt in the app's folder (the
+ * signal, the address and the calls, each as an offset into its library,
+ * for addr2line), then the system's own handling goes on. */
+static int s_crash_fd = -1;
+
+static void crash_line(const char *text)
+{
+    __android_log_write(ANDROID_LOG_ERROR, "ignition", text);
+    if (s_crash_fd >= 0) {
+        if (write(s_crash_fd, text, strlen(text)) < 0 || write(s_crash_fd, "\n", 1) < 0) {
+            s_crash_fd = -1;
+        }
+    }
+}
+
+static _Unwind_Reason_Code crash_frame(struct _Unwind_Context *ctx, void *arg)
+{
+    int *n = arg;
+    uintptr_t pc = (uintptr_t)_Unwind_GetIP(ctx);
+    Dl_info info;
+    char line[320];
+
+    if (pc == 0 || *n >= 40) {
+        return _URC_END_OF_STACK;
+    }
+    if (dladdr((void *)pc, &info) && info.dli_fname != NULL) {
+        snprintf(line, sizeof(line), "#%02d %s +0x%" PRIxPTR " %s", *n, info.dli_fname,
+                 pc - (uintptr_t)info.dli_fbase, info.dli_sname != NULL ? info.dli_sname : "");
+    } else {
+        snprintf(line, sizeof(line), "#%02d pc 0x%" PRIxPTR, *n, pc);
+    }
+    crash_line(line);
+    (*n)++;
+    return _URC_NO_REASON;
+}
+
+static void crash_handler(int sig, siginfo_t *info, void *context)
+{
+    char line[160];
+    int n = 0;
+
+    (void)context;
+    snprintf(line, sizeof(line), "ignition crash: signal %d code %d address %p", sig,
+             info != NULL ? info->si_code : 0, info != NULL ? info->si_addr : NULL);
+    crash_line(line);
+    _Unwind_Backtrace(crash_frame, &n);
+    crash_line("ignition crash: end");
+    /* SA_RESETHAND: returning runs the fault again with the default action. */
+}
+
+static void crash_setup(void)
+{
+    static const int signals[] = { SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT };
+    struct sigaction sa;
+    size_t i;
+
+    s_crash_fd = open("crash.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = crash_handler;
+    sa.sa_flags = SA_SIGINFO | SA_RESETHAND;
+    sigemptyset(&sa.sa_mask);
+    for (i = 0; i < sizeof(signals) / sizeof(signals[0]); i++) {
+        sigaction(signals[i], &sa, NULL);
+    }
+}
+
 /* stdout and stderr go to logcat. */
 static void *log_thread(void *arg)
 {
@@ -547,6 +618,7 @@ void android_main(struct android_app *app)
     if (dir != NULL && chdir(dir) != 0) {
         fprintf(stderr, "ignition: cannot enter %s\n", dir);
     }
+    crash_setup();
     ign_main(1, argv);
     /* The engine keeps its state in globals: a new start needs a new
      * process. */
