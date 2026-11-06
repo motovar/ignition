@@ -711,7 +711,8 @@ static int screen_y(s16 y)
 }
 
 /* 0x411960: draws a visual's sprite and its text, the text through the
- * identity colour table. */
+ * identity colour table. A value's visual goes with the value sprite (1),
+ * the one remade when the value changes, not the label's (0). */
 void menu_draw_visual(const struct menu_visual *v, const struct sprite *sprite)
 {
     u8 *table;
@@ -719,7 +720,8 @@ void menu_draw_visual(const struct menu_visual *v, const struct sprite *sprite)
     if (v == NULL) {
         return;
     }
-    if (v->pixels != NULL) {
+    /* No sprite when it could not be made: nothing to draw, not a crash. */
+    if (v->pixels != NULL && sprite != NULL) {
         menu_draw_sprite(sprite, screen_x(v->x), screen_y(v->y));
     }
     if (v->text == NULL) {
@@ -756,7 +758,7 @@ int menu_draw_items(void)
             menu_draw_visual(&it->visuals[look], s_sprites[i][0]);
         }
         if (it->value != NULL && it->visuals != NULL) {
-            menu_draw_visual(&it->visuals[look + (*it->value - it->min) * 2 + 2], s_sprites[i][0]);
+            menu_draw_visual(&it->visuals[look + (*it->value - it->min) * 2 + 2], s_sprites[i][1]);
         }
         ch = it->choice;
         if (ch != NULL) {
