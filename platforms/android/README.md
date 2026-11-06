@@ -59,3 +59,15 @@ Touch the screen once, and an on-screen pad shows: a d-pad on the left,
 A, B, X and Y on the right, Select and Start at the top. The buttons do
 what a gamepad's do (see [../linux/README.md](../linux/README.md#controls)).
 Gamepads and keyboards also work. The Back button is Escape.
+
+The small move icon at the bottom of the screen opens the pad's editor:
+drag a button to move it, tap one to pick it. Three sliders set the size
+(of the picked button, or of all of them when none is picked), how
+see-through the buttons are and how thick their rings are. The bin hides
+the picked button (a hidden button shows faintly in the editor, and a tap
+brings it back), the circular arrow restores the defaults and the check
+mark keeps the layout in `touchpad.cfg`. The game gets no input while the
+editor is open.
+
+If the game closes by itself, `crash.txt` in the same folder has the
+signal and the calls, and `Default.fil` the game's own log.

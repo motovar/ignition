@@ -1,16 +1,18 @@
 /*
  * platform/touch.c - the on-screen pad. See touch.h.
  *
- * The buttons are rings with an icon, drawn with rnd.h's OVER program:
- * small index textures (0 is left alone by OVER), a palette of their own
- * and an empty snapshot. A held button is filled. The icons are drawn
- * here, pixel by pixel, from a few shapes.
+ * The buttons are rings with an icon, drawn as RGBA textures with
+ * rnd.h's LAYER program and blending, so they can be see-through. A held
+ * button is filled. The icons are made here, from a few shapes.
  *
- * The small move icon at the bottom of the screen starts the layout
- * editor: drag a button to move it, tap it to pick it and then - or +
- * resizes it (with none picked they resize every button), the circular
- * arrow puts the buttons back and the check mark keeps the layout, in
- * touchpad.cfg in the working folder.
+ * The move icon at the bottom of the screen starts the layout editor:
+ * drag a button to move it and tap it to pick it. Three sliders set the
+ * size (of the picked button, of every button when none is picked), how
+ * see-through the buttons are and how thick their rings are. The bin
+ * hides the picked button (a hidden button shows faintly in the editor;
+ * tapping it brings it back), the circular arrow puts everything back
+ * and the check mark keeps the layout, in touchpad.cfg in the working
+ * folder.
  */
 
 #include <math.h>
@@ -29,13 +31,13 @@ enum icon {
     I_LOOK,                     /* Y: look back */
     I_PAUSE,                    /* Start */
     I_MENU,                     /* Select */
-    I_MOVE, I_PLUS, I_MINUS, I_RESET, I_DONE,
+    I_MOVE, I_TRASH, I_RESET, I_DONE,
+    I_SIZE, I_OPACITY, I_BORDER, I_KNOB,   /* the sliders': no ring */
     ICONS
 };
 
-/* Palette indices: 1 white, 2 grey (a held button's fill), 3 amber (the
- * editor), 4 dark (an icon on a held button's fill). */
-enum { V_NORMAL, V_LIT, V_EDIT, VARIANTS };
+/* A button's look: V_LIT is held (or picked); the editor's are amber. */
+enum { V_NORMAL, V_LIT, V_EDIT, V_TOOL, V_GHOST, VARIANTS };
 
 /* In units of a sixth of the screen's height from the bottom left
  * (x < 0: from the right edge). */
@@ -66,48 +68,98 @@ enum {
     SIZE = 128
 };
 
-/* A button's radius stays within these, in the same units. */
+/* The limits the sliders keep to. */
 #define R_MIN 0.25f
 #define R_MAX 1.3f
+#define SCALE_MIN 0.5f
+#define SCALE_MAX 1.6f
+#define ALPHA_MIN 0.1f
+#define ALPHA_MAX 1.0f
+#define BORDER_MIN 0.03f
+#define BORDER_MAX 0.30f
+#define BORDER_DEFAULT 0.117f
 #define CONFIG_FILE "touchpad.cfg"
 
-enum { T_MINUS, T_PLUS, T_RESET, T_DONE, TOOLS };
-static const int s_tool_icon[TOOLS] = { I_MINUS, I_PLUS, I_RESET, I_DONE };
+enum { T_TRASH, T_RESET, T_DONE, TOOLS };
+static const int s_tool_icon[TOOLS] = { I_TRASH, I_RESET, I_DONE };
+
+enum { S_SIZE, S_OPACITY, S_BORDER, SLIDERS };
+static const int s_slider_icon[SLIDERS] = { I_SIZE, I_OPACITY, I_BORDER };
+
+/* What a finger holds: a button it moves, a slider it sets, or nothing. */
+enum { DRAG_NONE = -1, DRAG_SLIDER = -2 };      /* a slider k is DRAG_SLIDER - k */
 
 static struct finger {
     long id;
     float x, y;
     int down;
-    int drag;                   /* the button this finger moves, or -1 */
+    int drag;
     float grab_x, grab_y;       /* where it holds the button, from its centre */
 } s_fingers[FINGERS];
 
 static struct place s_layout[BUTTONS];
+static u8 s_hidden[BUTTONS];
+static float s_scale = 1.0f, s_alpha = 1.0f, s_border = BORDER_DEFAULT;
 static int s_seen, s_loaded, s_edit, s_pick = -1;
 static int s_w, s_h;            /* the drawable's size, as last given */
-static unsigned s_tex[ICONS][VARIANTS], s_empty, s_palette;
 
 /* ------------------------------------------------------------ layout */
 
+static float clampf(float v, float lo, float hi)
+{
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
+static void default_layout(void)
+{
+    int i;
+
+    for (i = 0; i < BUTTONS; i++) {
+        s_layout[i] = s_buttons[i].at;
+        s_hidden[i] = 0;
+    }
+    s_scale = 1.0f;
+    s_alpha = 1.0f;
+    s_border = BORDER_DEFAULT;
+}
+
+static int ok_place(const struct place *p)
+{
+    return fabsf(p->x) < 20.0f && p->y > -1.0f && p->y < 8.0f && p->r >= R_MIN && p->r <= R_MAX;
+}
+
+/* Version 1 had the three numbers of each button; version 2 adds the
+ * scale, opacity and ring thickness, and a hidden flag a button. */
 static void load_layout(void)
 {
     FILE *fp = fopen(CONFIG_FILE, "r");
     struct place read[BUTTONS];
+    int hidden[BUTTONS];
+    float scale = 1.0f, alpha = 1.0f, border = BORDER_DEFAULT;
     int i, version = 0;
 
     if (fp == NULL) {
         return;
     }
-    if (fscanf(fp, "ignition-touchpad %d", &version) == 1 && version == 1) {
-        for (i = 0; i < BUTTONS; i++) {
+    if (fscanf(fp, "ignition-touchpad %d", &version) == 1 && (version == 1 || version == 2)) {
+        if (version == 2 && fscanf(fp, "%f %f %f", &scale, &alpha, &border) != 3) {
+            version = 0;
+        }
+        for (i = 0; version != 0 && i < BUTTONS; i++) {
+            hidden[i] = 0;
             if (fscanf(fp, "%f %f %f", &read[i].x, &read[i].y, &read[i].r) != 3
-                || !(fabsf(read[i].x) < 20.0f) || !(read[i].y > -1.0f && read[i].y < 8.0f)
-                || !(read[i].r >= R_MIN && read[i].r <= R_MAX)) {
-                break;
+                || (version == 2 && fscanf(fp, "%d", &hidden[i]) != 1) || !ok_place(&read[i])) {
+                version = 0;
             }
         }
-        if (i == BUTTONS) {
-            memcpy(s_layout, read, sizeof(s_layout));
+        if (version != 0) {
+            for (i = 0; i < BUTTONS; i++) {
+                s_layout[i] = read[i];
+                s_hidden[i] = hidden[i] != 0;
+            }
+            s_scale = clampf(scale, SCALE_MIN, SCALE_MAX);
+            s_alpha = clampf(alpha, ALPHA_MIN, ALPHA_MAX);
+            s_border = clampf(border, BORDER_MIN, BORDER_MAX);
         }
     }
     fclose(fp);
@@ -121,20 +173,12 @@ static void save_layout(void)
     if (fp == NULL) {
         return;
     }
-    fprintf(fp, "ignition-touchpad 1\n");
+    fprintf(fp, "ignition-touchpad 2\n%.3f %.3f %.3f\n", s_scale, s_alpha, s_border);
     for (i = 0; i < BUTTONS; i++) {
-        fprintf(fp, "%.3f %.3f %.3f\n", s_layout[i].x, s_layout[i].y, s_layout[i].r);
+        fprintf(fp, "%.3f %.3f %.3f %d\n", s_layout[i].x, s_layout[i].y, s_layout[i].r,
+                s_hidden[i]);
     }
     fclose(fp);
-}
-
-static void default_layout(void)
-{
-    int i;
-
-    for (i = 0; i < BUTTONS; i++) {
-        s_layout[i] = s_buttons[i].at;
-    }
 }
 
 static void ensure_layout(void)
@@ -153,27 +197,17 @@ static void place(int i, int w, int h, float *cx, float *cy, float *r)
 
     *cx = s_layout[i].x >= 0.0f ? s_layout[i].x * unit : (float)w + s_layout[i].x * unit;
     *cy = (float)h - s_layout[i].y * unit;
-    *r = s_layout[i].r * unit;
+    *r = s_layout[i].r * s_scale * unit;
 }
 
 /* Puts button `i` with its centre at (cx, cy) pixels, kept on the screen,
  * as the edge it is nearer to. */
 static void place_at(int i, float cx, float cy, int w, int h)
 {
-    float unit = (float)h / 6.0f, r = s_layout[i].r * unit;
+    float unit = (float)h / 6.0f, r = s_layout[i].r * s_scale * unit;
 
-    if (cx > (float)w - r) {
-        cx = (float)w - r;
-    }
-    if (cx < r) {
-        cx = r;
-    }
-    if (cy > (float)h - r) {
-        cy = (float)h - r;
-    }
-    if (cy < r) {
-        cy = r;
-    }
+    cx = clampf(cx, r, (float)w - r);
+    cy = clampf(cy, r, (float)h - r);
     if (cx < (float)w * 0.5f) {
         s_layout[i].x = cx / unit < 0.01f ? 0.01f : cx / unit;
     } else {
@@ -182,12 +216,25 @@ static void place_at(int i, float cx, float cy, int w, int h)
     s_layout[i].y = ((float)h - cy) / unit;
 }
 
+/* Keeps every button on the screen after a size change. */
+static void keep_on_screen(void)
+{
+    int i;
+
+    for (i = 0; i < BUTTONS; i++) {
+        float cx, cy, r;
+
+        place(i, s_w, s_h, &cx, &cy, &r);
+        place_at(i, cx, cy, s_w, s_h);
+    }
+}
+
 /* The editor's own controls, not part of the layout. */
 static void tool_place(int k, int w, int h, float *cx, float *cy, float *r)
 {
     float unit = (float)h / 6.0f;
 
-    *cx = (float)w * 0.5f + ((float)k - 1.5f) * 1.1f * unit;
+    *cx = (float)w * 0.5f + ((float)k - 1.0f) * 1.1f * unit;
     *cy = (float)h - 0.6f * unit;
     *r = 0.42f * unit;
 }
@@ -201,6 +248,80 @@ static void move_place(int w, int h, float *cx, float *cy, float *r)
     *r = 0.38f * unit;
 }
 
+/* A slider: the track from x0 to x1 at height y, its label's centre and
+ * radius. */
+static void slider_place(int k, int w, int h, float *x0, float *x1, float *y, float *lx, float *lr)
+{
+    float unit = (float)h / 6.0f, half = 2.2f * unit;
+
+    if (half > (float)w * 0.25f) {
+        half = (float)w * 0.25f;
+    }
+    *x0 = (float)w * 0.5f - half;
+    *x1 = (float)w * 0.5f + half;
+    *y = (float)h * 0.5f + ((float)k - 1.0f) * 1.0f * unit;
+    *lr = 0.33f * unit;
+    *lx = *x0 - 0.65f * unit;
+}
+
+/* A slider's range and its value now. */
+static void slider_range(int k, float *lo, float *hi, float *value)
+{
+    switch (k) {
+    case S_SIZE:
+        if (s_pick >= 0) {
+            *lo = R_MIN;
+            *hi = R_MAX;
+            *value = s_layout[s_pick].r;
+        } else {
+            *lo = SCALE_MIN;
+            *hi = SCALE_MAX;
+            *value = s_scale;
+        }
+        break;
+    case S_OPACITY:
+        *lo = ALPHA_MIN;
+        *hi = ALPHA_MAX;
+        *value = s_alpha;
+        break;
+    default:
+        *lo = BORDER_MIN;
+        *hi = BORDER_MAX;
+        *value = s_border;
+        break;
+    }
+}
+
+static int s_gen = 1;           /* the icons are made again when it changes */
+
+static void slider_set(int k, float x)
+{
+    float x0, x1, y, lx, lr, lo, hi, value, t;
+
+    slider_place(k, s_w, s_h, &x0, &x1, &y, &lx, &lr);
+    slider_range(k, &lo, &hi, &value);
+    t = clampf((x - x0) / (x1 - x0), 0.0f, 1.0f);
+    value = lo + t * (hi - lo);
+    switch (k) {
+    case S_SIZE:
+        if (s_pick >= 0) {
+            s_layout[s_pick].r = value;
+        } else {
+            s_scale = value;
+        }
+        keep_on_screen();
+        break;
+    case S_OPACITY:
+        s_alpha = value;
+        s_gen++;
+        break;
+    default:
+        s_border = value;
+        s_gen++;
+        break;
+    }
+}
+
 static int inside(float x, float y, float cx, float cy, float r)
 {
     float dx = x - cx, dy = y - cy;
@@ -209,8 +330,9 @@ static int inside(float x, float y, float cx, float cy, float r)
     return dx * dx + dy * dy < r * r * 1.4f;
 }
 
-/* The button under (x, y), the one it is nearest to the centre of. */
-static int pick(float x, float y)
+/* The button under (x, y), the one it is nearest to the centre of; the
+ * hidden ones too when `ghosts`. */
+static int pick(float x, float y, int ghosts)
 {
     int i, best = -1;
     float best_d = 0.0f;
@@ -218,6 +340,9 @@ static int pick(float x, float y)
     for (i = 0; i < BUTTONS; i++) {
         float cx, cy, r, d;
 
+        if (s_hidden[i] && !ghosts) {
+            continue;
+        }
         place(i, s_w, s_h, &cx, &cy, &r);
         d = ((x - cx) * (x - cx) + (y - cy) * (y - cy)) / (r * r);
         if (d < 1.4f && (best < 0 || d < best_d)) {
@@ -228,41 +353,18 @@ static int pick(float x, float y)
     return best;
 }
 
-/* The picked button, or every button when none is, by `factor`. */
-static void resize(float factor)
-{
-    int i;
-
-    for (i = 0; i < BUTTONS; i++) {
-        float cx, cy, r;
-
-        if (s_pick >= 0 && i != s_pick) {
-            continue;
-        }
-        place(i, s_w, s_h, &cx, &cy, &r);
-        s_layout[i].r *= factor;
-        if (s_layout[i].r < R_MIN) {
-            s_layout[i].r = R_MIN;
-        }
-        if (s_layout[i].r > R_MAX) {
-            s_layout[i].r = R_MAX;
-        }
-        place_at(i, cx, cy, s_w, s_h);
-    }
-}
-
 static void tool_action(int tool)
 {
     switch (tool) {
-    case T_MINUS:
-        resize(1.0f / 1.12f);
-        break;
-    case T_PLUS:
-        resize(1.12f);
+    case T_TRASH:
+        if (s_pick >= 0) {
+            s_hidden[s_pick] = 1;
+        }
         break;
     case T_RESET:
         default_layout();
         s_pick = -1;
+        s_gen++;
         break;
     default:
         save_layout();
@@ -277,7 +379,7 @@ static void tool_action(int tool)
 static void finger_down(struct finger *g)
 {
     int i;
-    float cx, cy, r;
+    float cx, cy, r, x0, x1, y, lx, lr;
 
     if (s_w <= 0 || s_h <= 0) {
         return;
@@ -297,8 +399,18 @@ static void finger_down(struct finger *g)
             return;
         }
     }
-    s_pick = pick(g->x, g->y);
+    for (i = 0; i < SLIDERS; i++) {
+        slider_place(i, s_w, s_h, &x0, &x1, &y, &lx, &lr);
+        if (g->x > x0 - 0.35f * (float)s_h / 6.0f && g->x < x1 + 0.35f * (float)s_h / 6.0f
+            && fabsf(g->y - y) < 0.45f * (float)s_h / 6.0f) {
+            g->drag = DRAG_SLIDER - i;
+            slider_set(i, g->x);
+            return;
+        }
+    }
+    s_pick = pick(g->x, g->y, 1);
     if (s_pick >= 0) {
+        s_hidden[s_pick] = 0;   /* a tap on a hidden button brings it back */
         place(s_pick, s_w, s_h, &cx, &cy, &r);
         g->drag = s_pick;
         g->grab_x = g->x - cx;
@@ -325,7 +437,7 @@ void touch_finger(long id, float x, float y, int down)
             return;
         }
         f = free_slot;
-        s_fingers[f].drag = -1;
+        s_fingers[f].drag = DRAG_NONE;
         s_fingers[f].id = id;
         s_fingers[f].x = x;
         s_fingers[f].y = y;
@@ -337,9 +449,11 @@ void touch_finger(long id, float x, float y, int down)
     s_fingers[f].y = y;
     s_fingers[f].down = down;
     if (!down) {
-        s_fingers[f].drag = -1;
+        s_fingers[f].drag = DRAG_NONE;
     } else if (s_edit && s_fingers[f].drag >= 0) {
         place_at(s_fingers[f].drag, x - s_fingers[f].grab_x, y - s_fingers[f].grab_y, s_w, s_h);
+    } else if (s_edit && s_fingers[f].drag <= DRAG_SLIDER) {
+        slider_set(DRAG_SLIDER - s_fingers[f].drag, x);
     }
 }
 
@@ -355,6 +469,9 @@ static u32 held(int w, int h)
         for (i = 0; i < BUTTONS; i++) {
             float cx, cy, r;
 
+            if (s_hidden[i]) {
+                continue;
+            }
             place(i, w, h, &cx, &cy, &r);
             if (inside(s_fingers[f].x, s_fingers[f].y, cx, cy, r)) {
                 b |= s_buttons[i].pad;
@@ -403,9 +520,12 @@ static float segment(float u, float v, float x0, float y0, float x1, float y1)
 }
 
 /* Whether an icon covers (u, v), both -1..1 with v down. The ring takes
- * the outer 0.88 of the radius: the shapes stay within half of it. */
+ * the outer part of the radius: the shapes stay within half of it, the
+ * slider labels' within 0.9. */
 static int glyph(int icon, float u, float v)
 {
+    float r = sqrtf(u * u + v * v);
+
     switch (icon) {
     case I_LEFT:
         return in_triangle(u, v, -0.45f, 0.0f, 0.3f, -0.46f, 0.3f, 0.46f);
@@ -442,14 +562,16 @@ static int glyph(int icon, float u, float v)
             || in_triangle(u, v, 0.56f, 0.0f, 0.3f, -0.2f, 0.3f, 0.2f)
             || in_triangle(u, v, 0.0f, -0.56f, -0.2f, -0.3f, 0.2f, -0.3f)
             || in_triangle(u, v, 0.0f, 0.56f, -0.2f, 0.3f, 0.2f, 0.3f);
-    case I_PLUS:
-        return in_box(u, v, -0.4f, -0.07f, 0.4f, 0.07f) || in_box(u, v, -0.07f, -0.4f, 0.07f, 0.4f);
-    case I_MINUS:
-        return in_box(u, v, -0.4f, -0.07f, 0.4f, 0.07f);
+    case I_TRASH:       /* a bin: the handle, the lid and the body with slits */
+        return in_box(u, v, -0.13f, -0.46f, 0.13f, -0.34f) || in_box(u, v, -0.38f, -0.32f, 0.38f, -0.2f)
+            || (in_box(u, v, -0.28f, -0.14f, 0.28f, 0.44f)
+                && !(in_box(u, v, -0.025f, -0.04f, 0.025f, 0.34f)
+                     || in_box(u, v, -0.145f, -0.04f, -0.095f, 0.34f)
+                     || in_box(u, v, 0.095f, -0.04f, 0.145f, 0.34f)));
     case I_RESET: {     /* a circular arrow, open at the top right */
-        float d2 = u * u + v * v, a = atan2f(-v, u) * 57.29578f;
+        float a = atan2f(-v, u) * 57.29578f;
 
-        if (d2 > 0.09f && d2 < 0.2025f && !(a > 25.0f && a < 80.0f)) {
+        if (r * r > 0.09f && r * r < 0.2025f && !(a > 25.0f && a < 80.0f)) {
             return 1;
         }
         return in_triangle(u, v, 0.17f, -0.12f, 0.51f, -0.12f, 0.21f, -0.43f);
@@ -457,78 +579,170 @@ static int glyph(int icon, float u, float v)
     case I_DONE:        /* a check mark */
         return segment(u, v, -0.4f, 0.0f, -0.12f, 0.3f) < 0.09f
             || segment(u, v, -0.12f, 0.3f, 0.42f, -0.3f) < 0.09f;
+    case I_SIZE:        /* a small and a big ring */
+        return fabsf(r - 0.3f) < 0.07f || fabsf(r - 0.72f) < 0.08f;
+    case I_OPACITY:     /* a ring, its left half full */
+        return (r > 0.7f && r < 0.84f) || (r <= 0.7f && u < 0.0f);
+    case I_BORDER:      /* a thick ring */
+        return r > 0.42f && r < 0.86f;
+    case I_KNOB:
+        return r < 0.85f;
     default:
         return 0;
     }
 }
 
-/* An icon in a ring, as palette indices; 0 outside the ring. */
-static void make_icon(int icon, int variant, u8 *px)
+/* The icons that are only a shape, without the ring around them. */
+static int no_ring(int icon)
 {
-    u8 line = variant == V_EDIT ? 3 : 1;
+    return icon >= I_SIZE;
+}
+
+/* The icons' shapes, 0 to 255 of a 2 x 2 sample a pixel; made once. */
+static u8 s_glyph[ICONS][SIZE * SIZE];
+static int s_glyphs_made;
+
+static void make_glyphs(void)
+{
+    int icon, x, y, sx, sy;
+
+    for (icon = 0; icon < ICONS; icon++) {
+        for (y = 0; y < SIZE; y++) {
+            for (x = 0; x < SIZE; x++) {
+                int hits = 0;
+
+                for (sy = 0; sy < 2; sy++) {
+                    for (sx = 0; sx < 2; sx++) {
+                        float u = ((float)x + ((float)sx + 0.5f) * 0.5f) * (2.0f / SIZE) - 1.0f;
+                        float v = ((float)y + ((float)sy + 0.5f) * 0.5f) * (2.0f / SIZE) - 1.0f;
+
+                        hits += glyph(icon, u, v);
+                    }
+                }
+                s_glyph[icon][y * SIZE + x] = (u8)(hits * 255 / 4);
+            }
+        }
+    }
+    s_glyphs_made = 1;
+}
+
+/* Colours a look is made of, 0 to 1. */
+struct rgb {
+    float r, g, b;
+};
+
+static const struct rgb C_WHITE = { 0.92f, 0.92f, 0.92f };
+static const struct rgb C_AMBER = { 1.0f, 0.745f, 0.157f };
+static const struct rgb C_GREY = { 0.59f, 0.59f, 0.59f };
+static const struct rgb C_DARK = { 0.137f, 0.137f, 0.137f };
+
+/* `src` of coverage `a` over the premultiplied pixel `px`. */
+static void over(float *px, struct rgb c, float a)
+{
+    float keep = 1.0f - a;
+
+    px[0] = c.r * a + px[0] * keep;
+    px[1] = c.g * a + px[1] * keep;
+    px[2] = c.b * a + px[2] * keep;
+    px[3] = a + px[3] * keep;
+}
+
+/* An icon in a look, as premultiplied RGBA with the ring's smooth
+ * edges; the buttons keep a little opacity when held or in the editor,
+ * whatever the setting. */
+static void make_icon(int icon, int variant, u8 *out)
+{
+    struct rgb line = variant == V_NORMAL || variant == V_LIT ? C_WHITE : C_AMBER;
+    int lit = variant == V_LIT, ring = !no_ring(icon);
+    float alpha = s_alpha;
     int x, y;
 
+    switch (variant) {
+    case V_LIT:
+        alpha = alpha < 0.55f ? 0.55f : alpha;
+        break;
+    case V_EDIT:
+        alpha = alpha < 0.5f ? 0.5f : alpha;
+        break;
+    case V_TOOL:
+        alpha = 1.0f;
+        break;
+    case V_GHOST:
+        alpha = 0.22f;
+        break;
+    default:
+        break;
+    }
     for (y = 0; y < SIZE; y++) {
         for (x = 0; x < SIZE; x++) {
             float u = ((float)x + 0.5f) * (2.0f / SIZE) - 1.0f;
             float v = ((float)y + 0.5f) * (2.0f / SIZE) - 1.0f;
-            float d2 = u * u + v * v;
-            u8 c = 0;
+            float r = sqrtf(u * u + v * v);
+            float px[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            float g = (float)s_glyph[icon][y * SIZE + x] / 255.0f;
+            int k;
 
-            if (d2 <= 1.0f) {
-                if (d2 > 0.78f) {
-                    c = line;
-                } else {
-                    if (variant == V_LIT) {
-                        c = 2;
-                    }
-                    if (glyph(icon, u, v)) {
-                        c = variant == V_LIT ? 4 : line;
-                    }
+            if (ring) {
+                float outer = clampf((1.0f - r) * (SIZE * 0.5f), 0.0f, 1.0f);
+                float edge = clampf((r - (1.0f - s_border)) * (SIZE * 0.5f), 0.0f, 1.0f);
+
+                if (lit) {
+                    over(px, C_GREY, outer * (1.0f - edge) * 0.65f);
                 }
+                over(px, lit ? C_DARK : line, g);
+                over(px, line, outer * edge);
+            } else {
+                over(px, line, g);
             }
-            px[y * SIZE + x] = c;
+            for (k = 0; k < 4; k++) {
+                out[(y * SIZE + x) * 4 + k] = (u8)(clampf(px[k] * alpha, 0.0f, 1.0f) * 255.0f + 0.5f);
+            }
         }
     }
 }
 
-static int make_textures(void)
-{
-    static u8 px[SIZE * SIZE], empty[SIZE * SIZE];
-    static u8 palette[256 * 3];
-    int i, v;
+static unsigned s_tex[ICONS][VARIANTS];
+static int s_tex_gen[ICONS][VARIANTS];
+static unsigned s_solid;
 
-    if (s_tex[0][0] != 0) {
-        return 1;
+/* The texture of an icon in a look, made or made again when the opacity
+ * or the ring's thickness changed. */
+static unsigned icon_texture(int icon, int variant)
+{
+    static u8 px[SIZE * SIZE * 4];
+
+    if (!s_glyphs_made) {
+        make_glyphs();
     }
-    memset(palette + 3, 235, 3);
-    memset(palette + 6, 150, 3);
-    palette[9] = 255;
-    palette[10] = 190;
-    palette[11] = 40;
-    memset(palette + 12, 35, 3);
-    for (i = 0; i < ICONS; i++) {
-        for (v = 0; v < VARIANTS; v++) {
-            make_icon(i, v, px);
-            s_tex[i][v] = rnd_texture(RND_R8, SIZE, SIZE, px, 0);
-        }
+    if (s_tex[icon][variant] != 0 && s_tex_gen[icon][variant] == s_gen) {
+        return s_tex[icon][variant];
     }
-    s_empty = rnd_texture(RND_R8, SIZE, SIZE, empty, 0);
-    s_palette = rnd_texture(RND_RGB8, 256, 1, palette, 256);
-    return s_tex[0][0] != 0;
+    make_icon(icon, variant, px);
+    if (s_tex[icon][variant] == 0) {
+        s_tex[icon][variant] = rnd_texture(RND_RGBA8, SIZE, SIZE, px, 0);
+    } else {
+        rnd_texture_set(s_tex[icon][variant], SIZE, SIZE, px, 0);
+    }
+    s_tex_gen[icon][variant] = s_gen;
+    return s_tex[icon][variant];
+}
+
+static void draw_quad(unsigned tex, float x0, float y0, float x1, float y1, int w, int h)
+{
+    float rect[4];
+
+    rect[0] = x0 / (float)w * 2.0f - 1.0f;
+    rect[1] = 1.0f - y1 / (float)h * 2.0f;
+    rect[2] = x1 / (float)w * 2.0f - 1.0f;
+    rect[3] = 1.0f - y0 / (float)h * 2.0f;
+    rnd_uniform(RND_U_RECT, rect);
+    rnd_texture_unit(0, tex);
+    rnd_draw(RND_STRIP, 0, 4);
 }
 
 static void draw_icon(int icon, int variant, float cx, float cy, float r, int w, int h)
 {
-    float rect[4];
-
-    rect[0] = (cx - r) / (float)w * 2.0f - 1.0f;
-    rect[1] = 1.0f - (cy + r) / (float)h * 2.0f;
-    rect[2] = (cx + r) / (float)w * 2.0f - 1.0f;
-    rect[3] = 1.0f - (cy - r) / (float)h * 2.0f;
-    rnd_uniform(RND_U_RECT, rect);
-    rnd_texture_unit(0, s_tex[icon][variant]);
-    rnd_draw(RND_STRIP, 0, 4);
+    draw_quad(icon_texture(icon, variant), cx - r, cy - r, cx + r, cy + r, w, h);
 }
 
 void touch_draw(int w, int h)
@@ -536,12 +750,16 @@ void touch_draw(int w, int h)
     u32 on;
     int i;
     float cx, cy, r;
+    static const u8 amber[4] = { 255, 190, 40, 255 };
 
     s_w = w;
     s_h = h;
     ensure_layout();
-    if (!s_seen || w <= 0 || h <= 0 || !make_textures()) {
+    if (!s_seen || w <= 0 || h <= 0) {
         return;
+    }
+    if (s_solid == 0) {
+        s_solid = rnd_texture(RND_RGBA8, 1, 1, amber, 0);
     }
     on = s_edit ? 0 : held(w, h);
     rnd_bind_screen(w, h);
@@ -551,23 +769,37 @@ void touch_draw(int w, int h)
     rnd_depth(RND_DEPTH_OFF, 1);
     rnd_scissor(0, 0, 0, 0, 0);
     rnd_cull(RND_CULL_OFF);
-    rnd_use(RND_OVER);
-    rnd_texture_unit(1, s_palette);
-    rnd_texture_unit(2, s_empty);
+    rnd_blend(RND_BLEND_PREMUL);
+    rnd_use(RND_LAYER);
     for (i = 0; i < BUTTONS; i++) {
-        int variant = s_edit ? (i == s_pick ? V_LIT : V_EDIT)
-                             : (on & s_buttons[i].pad) ? V_LIT : V_NORMAL;
+        int variant;
 
+        if (s_hidden[i] && !s_edit) {
+            continue;
+        }
+        variant = s_edit ? (s_hidden[i] ? V_GHOST : i == s_pick ? V_LIT : V_EDIT)
+                         : (on & s_buttons[i].pad) ? V_LIT : V_NORMAL;
         place(i, w, h, &cx, &cy, &r);
         draw_icon(s_buttons[i].icon, variant, cx, cy, r, w, h);
     }
     if (s_edit) {
         for (i = 0; i < TOOLS; i++) {
             tool_place(i, w, h, &cx, &cy, &r);
-            draw_icon(s_tool_icon[i], V_EDIT, cx, cy, r, w, h);
+            draw_icon(s_tool_icon[i], V_TOOL, cx, cy, r, w, h);
+        }
+        for (i = 0; i < SLIDERS; i++) {
+            float x0, x1, y, lx, lr, lo, hi, value, kx, thin = (float)h / 6.0f * 0.04f;
+
+            slider_place(i, w, h, &x0, &x1, &y, &lx, &lr);
+            slider_range(i, &lo, &hi, &value);
+            kx = x0 + (x1 - x0) * (value - lo) / (hi - lo);
+            draw_quad(s_solid, x0, y - thin, x1, y + thin, w, h);
+            draw_icon(s_slider_icon[i], V_TOOL, lx, y, lr, w, h);
+            draw_icon(I_KNOB, V_TOOL, kx, y, lr * 0.8f, w, h);
         }
     } else {
         move_place(w, h, &cx, &cy, &r);
         draw_icon(I_MOVE, V_NORMAL, cx, cy, r, w, h);
     }
+    rnd_blend(RND_BLEND_OFF);
 }
