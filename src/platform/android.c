@@ -23,6 +23,8 @@
 #include <inttypes.h>
 #include <pthread.h>
 #include <signal.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -517,16 +519,31 @@ const char *plat_host_pref_dir(void)
     return dir;
 }
 
-/* A crash is written to logcat and to crash.txt in the app's folder (the
- * signal, the address and the calls, each as an offset into its library,
- * for addr2line), then the system's own handling goes on. */
+/* A crash of the game's thread is written to logcat and to crash.txt in
+ * the app's folder (the signal, the address and the calls, each as an
+ * offset into its library, for addr2line), once and at most 32 kB; an
+ * older file over 128 kB is emptied at start. Every signal then goes on
+ * to the handler that was there before (the runtime's, the system's), the
+ * other threads' ones without a report. */
+#define CRASH_FILE_LIMIT (32 * 1024)
+#define CRASH_FILE_KEEP (128 * 1024)
+
 static int s_crash_fd = -1;
+static long s_crash_left = CRASH_FILE_LIMIT;
+static pid_t s_game_tid;
+static volatile sig_atomic_t s_crash_done;
+static const int s_crash_signals[] = { SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT };
+enum { CRASH_SIGNALS = sizeof(s_crash_signals) / sizeof(s_crash_signals[0]) };
+static struct sigaction s_crash_old[CRASH_SIGNALS];
 
 static void crash_line(const char *text)
 {
+    size_t len = strlen(text);
+
     __android_log_write(ANDROID_LOG_ERROR, "ignition", text);
-    if (s_crash_fd >= 0) {
-        if (write(s_crash_fd, text, strlen(text)) < 0 || write(s_crash_fd, "\n", 1) < 0) {
+    if (s_crash_fd >= 0 && s_crash_left > (long)len) {
+        s_crash_left -= (long)len + 1;
+        if (write(s_crash_fd, text, len) < 0 || write(s_crash_fd, "\n", 1) < 0) {
             s_crash_fd = -1;
         }
     }
@@ -555,31 +572,53 @@ static _Unwind_Reason_Code crash_frame(struct _Unwind_Context *ctx, void *arg)
 
 static void crash_handler(int sig, siginfo_t *info, void *context)
 {
-    char line[160];
-    int n = 0;
+    const struct sigaction *old = NULL;
+    size_t i;
 
-    (void)context;
-    snprintf(line, sizeof(line), "ignition crash: signal %d code %d address %p", sig,
-             info != NULL ? info->si_code : 0, info != NULL ? info->si_addr : NULL);
-    crash_line(line);
-    _Unwind_Backtrace(crash_frame, &n);
-    crash_line("ignition crash: end");
-    /* SA_RESETHAND: returning runs the fault again with the default action. */
+    if ((pid_t)syscall(SYS_gettid) == s_game_tid && !s_crash_done) {
+        char line[160];
+        int n = 0;
+
+        s_crash_done = 1;
+        snprintf(line, sizeof(line), "ignition crash: signal %d code %d address %p", sig,
+                 info != NULL ? info->si_code : 0, info != NULL ? info->si_addr : NULL);
+        crash_line(line);
+        _Unwind_Backtrace(crash_frame, &n);
+        crash_line("ignition crash: end");
+    }
+    for (i = 0; i < CRASH_SIGNALS; i++) {
+        if (s_crash_signals[i] == sig) {
+            old = &s_crash_old[i];
+        }
+    }
+    if (old != NULL && (old->sa_flags & SA_SIGINFO) && old->sa_sigaction != NULL) {
+        old->sa_sigaction(sig, info, context);
+    } else if (old != NULL && old->sa_handler != SIG_DFL && old->sa_handler != SIG_IGN) {
+        old->sa_handler(sig);
+    } else {
+        /* Nobody else wanted it: the default action on the fault again. */
+        signal(sig, SIG_DFL);
+    }
 }
 
 static void crash_setup(void)
 {
-    static const int signals[] = { SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT };
     struct sigaction sa;
+    struct stat st;
     size_t i;
 
+    s_game_tid = (pid_t)syscall(SYS_gettid);
     s_crash_fd = open("crash.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (s_crash_fd >= 0 && fstat(s_crash_fd, &st) == 0 && st.st_size > CRASH_FILE_KEEP
+        && ftruncate(s_crash_fd, 0) != 0) {
+        s_crash_fd = -1;
+    }
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = crash_handler;
-    sa.sa_flags = SA_SIGINFO | SA_RESETHAND;
+    sa.sa_flags = SA_SIGINFO;
     sigemptyset(&sa.sa_mask);
-    for (i = 0; i < sizeof(signals) / sizeof(signals[0]); i++) {
-        sigaction(signals[i], &sa, NULL);
+    for (i = 0; i < CRASH_SIGNALS; i++) {
+        sigaction(s_crash_signals[i], &sa, &s_crash_old[i]);
     }
 }
 

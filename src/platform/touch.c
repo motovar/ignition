@@ -5,8 +5,9 @@
  * rnd.h's LAYER program and blending, so they can be see-through. A held
  * button is filled. The icons are made here, from a few shapes.
  *
- * The move icon at the bottom of the screen starts the layout editor:
- * drag a button to move it and tap it to pick it. Three sliders set the
+ * The move icon at the bottom of the screen starts the layout editor (it
+ * is one of the items the editor moves and sizes, but it cannot be
+ * hidden): drag a button to move it and tap it to pick it. Three sliders set the
  * size (of the picked button, of every button when none is picked), how
  * see-through the buttons are and how thick their rings are. The bin
  * hides the picked button (a hidden button shows faintly in the editor;
@@ -60,10 +61,13 @@ static const struct button {
     { { -2.6f, 2.4f, 0.55f }, PAD_Y, I_LOOK },
     { { -0.6f, 5.5f, 0.35f }, PAD_START, I_PAUSE },
     { { 0.6f, 5.5f, 0.35f }, PAD_SELECT, I_MENU },
+    { { 6.0f, 0.5f, 0.38f }, 0, I_MOVE },       /* the editor's, last */
 };
 
 enum {
-    BUTTONS = sizeof(s_buttons) / sizeof(s_buttons[0]),
+    ITEMS = sizeof(s_buttons) / sizeof(s_buttons[0]),
+    BUTTONS = ITEMS - 1,        /* the ones that are the game's */
+    EDIT_ITEM = BUTTONS,
     FINGERS = 10,
     SIZE = 128
 };
@@ -97,8 +101,8 @@ static struct finger {
     float grab_x, grab_y;       /* where it holds the button, from its centre */
 } s_fingers[FINGERS];
 
-static struct place s_layout[BUTTONS];
-static u8 s_hidden[BUTTONS];
+static struct place s_layout[ITEMS];
+static u8 s_hidden[ITEMS];
 static float s_scale = 1.0f, s_alpha = 1.0f, s_border = BORDER_DEFAULT;
 static int s_seen, s_loaded, s_edit, s_pick = -1;
 static int s_w, s_h;            /* the drawable's size, as last given */
@@ -114,7 +118,7 @@ static void default_layout(void)
 {
     int i;
 
-    for (i = 0; i < BUTTONS; i++) {
+    for (i = 0; i < ITEMS; i++) {
         s_layout[i] = s_buttons[i].at;
         s_hidden[i] = 0;
     }
@@ -129,33 +133,35 @@ static int ok_place(const struct place *p)
 }
 
 /* Version 1 had the three numbers of each button; version 2 adds the
- * scale, opacity and ring thickness, and a hidden flag a button. */
+ * scale, opacity and ring thickness, and a hidden flag a button; version
+ * 3 the editor's icon after the buttons. */
 static void load_layout(void)
 {
     FILE *fp = fopen(CONFIG_FILE, "r");
-    struct place read[BUTTONS];
-    int hidden[BUTTONS];
+    struct place read[ITEMS];
+    int hidden[ITEMS];
     float scale = 1.0f, alpha = 1.0f, border = BORDER_DEFAULT;
-    int i, version = 0;
+    int i, n, version = 0;
 
     if (fp == NULL) {
         return;
     }
-    if (fscanf(fp, "ignition-touchpad %d", &version) == 1 && (version == 1 || version == 2)) {
-        if (version == 2 && fscanf(fp, "%f %f %f", &scale, &alpha, &border) != 3) {
+    if (fscanf(fp, "ignition-touchpad %d", &version) == 1 && (version >= 1 && version <= 3)) {
+        n = version == 3 ? ITEMS : BUTTONS;
+        if (version >= 2 && fscanf(fp, "%f %f %f", &scale, &alpha, &border) != 3) {
             version = 0;
         }
-        for (i = 0; version != 0 && i < BUTTONS; i++) {
+        for (i = 0; version != 0 && i < n; i++) {
             hidden[i] = 0;
             if (fscanf(fp, "%f %f %f", &read[i].x, &read[i].y, &read[i].r) != 3
-                || (version == 2 && fscanf(fp, "%d", &hidden[i]) != 1) || !ok_place(&read[i])) {
+                || (version >= 2 && fscanf(fp, "%d", &hidden[i]) != 1) || !ok_place(&read[i])) {
                 version = 0;
             }
         }
         if (version != 0) {
-            for (i = 0; i < BUTTONS; i++) {
+            for (i = 0; i < n; i++) {
                 s_layout[i] = read[i];
-                s_hidden[i] = hidden[i] != 0;
+                s_hidden[i] = hidden[i] != 0 && i != EDIT_ITEM;
             }
             s_scale = clampf(scale, SCALE_MIN, SCALE_MAX);
             s_alpha = clampf(alpha, ALPHA_MIN, ALPHA_MAX);
@@ -173,8 +179,8 @@ static void save_layout(void)
     if (fp == NULL) {
         return;
     }
-    fprintf(fp, "ignition-touchpad 2\n%.3f %.3f %.3f\n", s_scale, s_alpha, s_border);
-    for (i = 0; i < BUTTONS; i++) {
+    fprintf(fp, "ignition-touchpad 3\n%.3f %.3f %.3f\n", s_scale, s_alpha, s_border);
+    for (i = 0; i < ITEMS; i++) {
         fprintf(fp, "%.3f %.3f %.3f %d\n", s_layout[i].x, s_layout[i].y, s_layout[i].r,
                 s_hidden[i]);
     }
@@ -221,7 +227,7 @@ static void keep_on_screen(void)
 {
     int i;
 
-    for (i = 0; i < BUTTONS; i++) {
+    for (i = 0; i < ITEMS; i++) {
         float cx, cy, r;
 
         place(i, s_w, s_h, &cx, &cy, &r);
@@ -235,17 +241,8 @@ static void tool_place(int k, int w, int h, float *cx, float *cy, float *r)
     float unit = (float)h / 6.0f;
 
     *cx = (float)w * 0.5f + ((float)k - 1.0f) * 1.1f * unit;
-    *cy = (float)h - 0.6f * unit;
+    *cy = (float)h - 1.6f * unit;
     *r = 0.42f * unit;
-}
-
-static void move_place(int w, int h, float *cx, float *cy, float *r)
-{
-    float unit = (float)h / 6.0f;
-
-    *cx = (float)w * 0.5f;
-    *cy = (float)h - 0.5f * unit;
-    *r = 0.38f * unit;
 }
 
 /* A slider: the track from x0 to x1 at height y, its label's centre and
@@ -259,7 +256,7 @@ static void slider_place(int k, int w, int h, float *x0, float *x1, float *y, fl
     }
     *x0 = (float)w * 0.5f - half;
     *x1 = (float)w * 0.5f + half;
-    *y = (float)h * 0.5f + ((float)k - 1.0f) * 1.0f * unit;
+    *y = (float)h * 0.4f + ((float)k - 1.0f) * 0.9f * unit;
     *lr = 0.33f * unit;
     *lx = *x0 - 0.65f * unit;
 }
@@ -337,7 +334,7 @@ static int pick(float x, float y, int ghosts)
     int i, best = -1;
     float best_d = 0.0f;
 
-    for (i = 0; i < BUTTONS; i++) {
+    for (i = 0; i < ITEMS; i++) {
         float cx, cy, r, d;
 
         if (s_hidden[i] && !ghosts) {
@@ -357,7 +354,7 @@ static void tool_action(int tool)
 {
     switch (tool) {
     case T_TRASH:
-        if (s_pick >= 0) {
+        if (s_pick >= 0 && s_pick != EDIT_ITEM) {
             s_hidden[s_pick] = 1;
         }
         break;
@@ -385,7 +382,7 @@ static void finger_down(struct finger *g)
         return;
     }
     if (!s_edit) {
-        move_place(s_w, s_h, &cx, &cy, &r);
+        place(EDIT_ITEM, s_w, s_h, &cx, &cy, &r);
         if (inside(g->x, g->y, cx, cy, r)) {
             s_edit = 1;
             s_pick = -1;
@@ -771,7 +768,7 @@ void touch_draw(int w, int h)
     rnd_cull(RND_CULL_OFF);
     rnd_blend(RND_BLEND_PREMUL);
     rnd_use(RND_LAYER);
-    for (i = 0; i < BUTTONS; i++) {
+    for (i = 0; i < ITEMS; i++) {
         int variant;
 
         if (s_hidden[i] && !s_edit) {
@@ -797,9 +794,6 @@ void touch_draw(int w, int h)
             draw_icon(s_slider_icon[i], V_TOOL, lx, y, lr, w, h);
             draw_icon(I_KNOB, V_TOOL, kx, y, lr * 0.8f, w, h);
         }
-    } else {
-        move_place(w, h, &cx, &cy, &r);
-        draw_icon(I_MOVE, V_NORMAL, cx, cy, r, w, h);
     }
     rnd_blend(RND_BLEND_OFF);
 }
