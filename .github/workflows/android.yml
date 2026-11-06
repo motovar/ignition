@@ -2,9 +2,10 @@ name: Android APK
 
 # Builds only the Android APK, on every push and by hand (Actions ->
 # Android APK -> Run workflow). The APK is kept as the workflow artifact
-# android-apk. Signed with a throwaway debug key unless the
-# ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASS and ANDROID_KEY_ALIAS
-# secrets are set.
+# android-apk. Signed with the fork's fixed key
+# (platforms/android/fork-debug.keystore), so every build updates the one
+# before it; the ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASS and
+# ANDROID_KEY_ALIAS secrets, when set, replace it with a private key.
 
 on:
   push:
@@ -43,6 +44,10 @@ jobs:
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
             export ANDROID_KEYSTORE="$RUNNER_TEMP/release.keystore"
+          else
+            export ANDROID_KEYSTORE="$PWD/platforms/android/fork-debug.keystore"
+            export ANDROID_KEYSTORE_PASS=android
+            export ANDROID_KEY_ALIAS=androiddebugkey
           fi
           ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" make android VERSION="$VERSION"
           cp build-android/ignition.apk "ignition-android-$VERSION.apk"
