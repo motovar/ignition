@@ -38,6 +38,13 @@ void gfx_set_overlay(unsigned overlay);
 void gfx_draw_layers(unsigned layer, const u8 *pixels, const u8 *snapshot, int w, int h,
                      int pitch, const u8 *palette, float aspect);
 
+/* The four pieces that round a monitor's corners (top left, top right,
+ * bottom left, bottom right; `w` x `h` colour indices of at most 32 x 32,
+ * 0 clear), drawn by gfx_draw_layers at the drawable's own corners with
+ * the screen's pixel size, past the 2D screen when the drawable is wider
+ * than it. NULL for none. */
+void gfx_set_corners(const u8 *const pieces[4], int w, int h, int stride);
+
 /* Draws a texture of colour indices (rnd.h) (row 0 at the top) as
  * gfx_draw_screen places a surface. */
 void gfx_draw_index_texture(unsigned tex, const u8 *palette, float aspect);

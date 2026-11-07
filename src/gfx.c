@@ -2,6 +2,8 @@
  * gfx.c - the screen: colour indices through the palette (rnd.h).
  */
 
+#include <string.h>
+
 #include "gfx.h"
 #include "rnd.h"
 #include "prof.h"
@@ -19,6 +21,37 @@ void gfx_set_overlay(unsigned overlay)
     s_overlay = overlay;
 }
 
+/* The corner pieces: their pixels, and the textures they are drawn from
+ * (made when the size changes, set when the pixels do). */
+enum { CORNER_MAX = 32 };
+static int s_corner_w, s_corner_h;
+static u8 s_corner_px[4][CORNER_MAX * CORNER_MAX];
+static const u8 s_corner_zero[CORNER_MAX * CORNER_MAX];
+static unsigned s_corner_tex[4], s_corner_zero_tex;
+static int s_corner_made_w, s_corner_made_h, s_corner_dirty;
+
+void gfx_set_corners(const u8 *const pieces[4], int w, int h, int stride)
+{
+    u8 px[4][CORNER_MAX * CORNER_MAX];
+    int i, y;
+
+    if (pieces == NULL || w <= 0 || h <= 0 || w > CORNER_MAX || h > CORNER_MAX || stride < w) {
+        s_corner_w = s_corner_h = 0;
+        return;
+    }
+    for (i = 0; i < 4; i++) {
+        for (y = 0; y < h; y++) {
+            memcpy(&px[i][y * w], pieces[i] + (size_t)y * stride, (size_t)w);
+        }
+    }
+    if (w != s_corner_w || h != s_corner_h || memcmp(px, s_corner_px, sizeof(px)) != 0) {
+        memcpy(s_corner_px, px, sizeof(px));
+        s_corner_w = w;
+        s_corner_h = h;
+        s_corner_dirty = 1;
+    }
+}
+
 int gfx_init(void)
 {
     if (!rnd_init()) {
@@ -33,6 +66,17 @@ int gfx_init(void)
 
 void gfx_shutdown(void)
 {
+    {
+        int i;
+
+        for (i = 0; i < 4; i++) {
+            rnd_texture_free(s_corner_tex[i]);
+            s_corner_tex[i] = 0;
+        }
+        rnd_texture_free(s_corner_zero_tex);
+        s_corner_zero_tex = 0;
+        s_corner_w = s_corner_h = 0;
+    }
     rnd_texture_free(s_index_tex);
     rnd_texture_free(s_palette_tex);
     rnd_texture_free(s_snap_tex);
@@ -87,6 +131,55 @@ void gfx_draw_screen(const u8 *pixels, int w, int h, int pitch,
     rnd_draw(RND_STRIP, 0, 4);
 }
 
+/* The corner pieces at the drawable's corners. `rect` is where the 2D
+ * screen of `w` x `h` is, which gives the size of its pixels. */
+static void draw_corners(const float rect[4], int w, int h)
+{
+    float dx, dy, cw, ch, r[4];
+    int i;
+
+    if (s_corner_w == 0 || w <= 0 || h <= 0) {
+        return;
+    }
+    if (s_corner_zero_tex == 0 || s_corner_made_w != s_corner_w || s_corner_made_h != s_corner_h) {
+        for (i = 0; i < 4; i++) {
+            if (s_corner_tex[i] != 0) {
+                rnd_texture_free(s_corner_tex[i]);
+            }
+            s_corner_tex[i] = rnd_texture(RND_R8, s_corner_w, s_corner_h, s_corner_px[i], s_corner_w);
+        }
+        if (s_corner_zero_tex != 0) {
+            rnd_texture_free(s_corner_zero_tex);
+        }
+        s_corner_zero_tex = rnd_texture(RND_R8, s_corner_w, s_corner_h, s_corner_zero, s_corner_w);
+        s_corner_made_w = s_corner_w;
+        s_corner_made_h = s_corner_h;
+        s_corner_dirty = 0;
+    } else if (s_corner_dirty) {
+        for (i = 0; i < 4; i++) {
+            rnd_texture_set(s_corner_tex[i], s_corner_w, s_corner_h, s_corner_px[i], s_corner_w);
+        }
+        s_corner_dirty = 0;
+    }
+    dx = (rect[2] - rect[0]) / (float)w;
+    dy = (rect[3] - rect[1]) / (float)h;
+    cw = s_corner_w * dx;
+    ch = s_corner_h * dy;
+    rnd_use(RND_OVER);
+    for (i = 0; i < 4; i++) {
+        /* 0 top left, 1 top right, 2 bottom left, 3 bottom right. */
+        r[0] = (i & 1) ? 1.0f - cw : -1.0f;
+        r[2] = (i & 1) ? 1.0f : -1.0f + cw;
+        r[1] = (i & 2) ? -1.0f : 1.0f - ch;
+        r[3] = (i & 2) ? -1.0f + ch : 1.0f;
+        rnd_uniform(RND_U_RECT, r);
+        rnd_texture_unit(0, s_corner_tex[i]);
+        rnd_texture_unit(1, s_palette_tex);
+        rnd_texture_unit(2, s_corner_zero_tex);
+        rnd_draw(RND_STRIP, 0, 4);
+    }
+}
+
 void gfx_draw_layers(unsigned layer, const u8 *pixels, const u8 *snapshot, int w, int h,
                      int pitch, const u8 *palette, float aspect)
 {
@@ -139,6 +232,7 @@ void gfx_draw_layers(unsigned layer, const u8 *pixels, const u8 *snapshot, int w
     rnd_texture_unit(1, s_palette_tex);
     rnd_texture_unit(2, s_snap_tex);
     rnd_draw(RND_STRIP, 0, 4);
+    draw_corners(rect, w, h);
     prof_end(PROF_H_OVER);
 }
 

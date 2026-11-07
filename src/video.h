@@ -69,6 +69,9 @@ float video_aspect(void);
 /* Shows `layer` (gl3d_view_texture) under the screen; where the screen
  * equals `snapshot` the layer shows through. 0 for none. */
 void video_set_layer(unsigned layer, const u8 *snapshot);
+/* The pieces that round the screen's corners (gfx_set_corners), shown at
+ * the drawable's corners over the layer; video_set_layer clears them. */
+void video_set_corners(const u8 *const pieces[4], int w, int h, int stride);
 /* An RGBA layer (premultiplied) shown over the 3D layer, under the
  * screen's changes; 0 for none. video_set_layer clears it. */
 void video_set_overlay(unsigned overlay);

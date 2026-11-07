@@ -330,9 +330,15 @@ void video_set_overlay(unsigned overlay)
     gfx_set_overlay(overlay);
 }
 
+void video_set_corners(const u8 *const pieces[4], int w, int h, int stride)
+{
+    gfx_set_corners(pieces, w, h, stride);
+}
+
 void video_set_layer(unsigned layer, const u8 *snapshot)
 {
     gfx_set_overlay(0);
+    gfx_set_corners(NULL, 0, 0, 0);
     s_layer = layer;
     s_layer_snapshot = snapshot;
 }
