@@ -27,7 +27,57 @@ int g_fatal_error;              /* 0x54f970 */
 char g_error_text[256];         /* 0x6035f0 */
 s32 g_screen_width;             /* 0x553000 */
 s32 g_screen_height;            /* 0x563c10 */
-u8 g_back_buffer[SCREEN_MAX_W * SCREEN_MAX_H];    /* 0x563db0, 800 x 600 in the original */
+struct back_block g_back_block;      /* g_back_buffer: 0x563db0, 800 x 600 in the original */
+
+#define GUARD_BYTE 0xa5
+
+/* Looks at the guard bands: the first time it sets them, then it reports
+ * (to Default.fil and stderr) the stage after which a byte in one was
+ * not as it was left, how far from the buffer, and puts it back. */
+void back_guard_check(const char *where)
+{
+    static int s_armed, s_reports;
+    int side;
+
+    if (!s_armed) {
+        memset(g_back_block.pre, GUARD_BYTE, sizeof(g_back_block.pre));
+        memset(g_back_block.post, GUARD_BYTE, sizeof(g_back_block.post));
+        s_armed = 1;
+        return;
+    }
+    for (side = 0; side < 2; side++) {
+        u8 *band = side == 0 ? g_back_block.pre : g_back_block.post;
+        int i, first = -1, last = -1, count = 0;
+
+        for (i = 0; i < BACK_GUARD; i++) {
+            if (band[i] != GUARD_BYTE) {
+                if (first < 0) {
+                    first = i;
+                }
+                last = i;
+                count++;
+            }
+        }
+        if (count == 0) {
+            continue;
+        }
+        if (s_reports < 40) {
+            /* Distances from the buffer: before it counts down to -1. */
+            int from = side == 0 ? first - BACK_GUARD : first;
+            int to = side == 0 ? last - BACK_GUARD : last;
+
+            log_printf("back buffer %s written after %s: %d bytes, %d to %d, screen %dx%d\
+",
+                       side == 0 ? "before" : "past", where, count, from, to,
+                       (int)g_screen_width, (int)g_screen_height);
+            fprintf(stderr, "ignition: back buffer %s written after %s: %d bytes, %d to %d\
+",
+                    side == 0 ? "before" : "past", where, count, from, to);
+            s_reports++;
+        }
+        memset(band, GUARD_BYTE, BACK_GUARD);
+    }
+}
 u8 *g_sysgfx;                   /* 0x54f998, N_SYSGFX.PIC */
 u8 *g_sysgfx2;                  /* 0x553088, N_SYSG_2.PIC */
 u8 *g_sys_palette;              /* 0x563bfc, SYS.COL */

@@ -18,7 +18,19 @@ extern s32 g_screen_height;
  * over its scale in NATIVE. */
 enum { SCREEN_MAX_W = 2560, SCREEN_MAX_H = 1440 };
 
-extern u8 g_back_buffer[SCREEN_MAX_W * SCREEN_MAX_H];
+/* The back buffer has guard bands on both sides: a write a little outside
+ * it (a row above, a few pixels left of the first) lands in them and not in
+ * the globals the linker puts beside it (the screen's size, the fonts).
+ * back_guard_check names the stage a stray write was found after. */
+enum { BACK_GUARD = 0x10000 };
+struct back_block {
+    u8 pre[BACK_GUARD];
+    u8 buf[SCREEN_MAX_W * SCREEN_MAX_H];
+    u8 post[BACK_GUARD];
+};
+extern struct back_block g_back_block;
+#define g_back_buffer (g_back_block.buf)
+void back_guard_check(const char *where);
 extern u8 *g_sysgfx;
 extern u8 *g_sysgfx2;
 extern u8 *g_sys_palette;
