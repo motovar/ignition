@@ -69,7 +69,9 @@ done
 # The theme (platforms/android/res): the cutout of a camera on a short edge.
 cp -R "$HERE/res/." "$OUT/res/"
 "$BT/aapt2" compile --dir "$OUT/res" -o "$OUT/res.zip"
-"$BT/aapt2" link -o "$OUT/unsigned.apk" -I "$ANDROID_JAR" \
+# -R makes the resources overlays, which may not add new ones (the theme's
+# style): --auto-add-overlay lets them.
+"$BT/aapt2" link -o "$OUT/unsigned.apk" -I "$ANDROID_JAR" --auto-add-overlay \
     --manifest "$HERE/AndroidManifest.xml" -R "$OUT/res.zip" \
     --min-sdk-version "$MIN_SDK" --target-sdk-version "$TARGET_SDK" \
     --version-code "$VCODE" --version-name "$VNAME"
