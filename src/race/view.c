@@ -11,8 +11,6 @@
 #include <math.h>
 #include <string.h>
 
-#include "canvas.h"
-#include "lisa/gfx.h"
 #include "lisa/sprite.h"
 #include "prof.h"
 #include "race/race.h"
@@ -27,6 +25,7 @@
 #include "race/misc.h"
 #include "race/view.h"
 #include "scene.h"
+#include "soft3d/soft3d.h"
 #include "startup.h"
 #include "stubs.h"
 #include "video.h"
@@ -315,43 +314,55 @@ static void replay_camera(void)
     }
 }
 
-/* The four corner pieces over a full screen view. In NATIVE the screen's
- * 320 x 200 has margins about it (canvas_extent) that the 3D fills, and
- * the pieces go to the drawable's corners, not the 4:3 picture's. A clip
- * of the whole screen takes the margins in (canvas.c); the one that was
- * set is put back. */
+/* The pieces over a full screen view's corners go to the drawable's
+ * own when the 3D is a layer behind the screen (video_set_layer): it is
+ * wider than the 4:3 screen the HUD is drawn in, and the pieces that
+ * round its corners belong at its edge. 0 where that is not so. */
+static int corners_on_drawable(void)
+{
+    const u8 *pieces[4];
+    struct tex_desc d[4];
+    int i;
+
+    if (g_soft3d) {
+        return 0;
+    }
+    for (i = 0; i < 4; i++) {
+        if (g_position_icons[i] == NULL || tex_get_info(&d[i], g_position_icons[i]->tex) != 0) {
+            return 0;
+        }
+        if (d[i].pixels == NULL || d[i].width != d[0].width || d[i].height != d[0].height
+            || d[i].stride != d[0].stride) {
+            return 0;
+        }
+        pieces[i] = d[i].pixels;
+    }
+    video_set_corners(pieces, d[0].width, d[0].height, d[0].stride);
+    return 1;
+}
+
+/* The four corner pieces over a full screen view. */
 static void corners(void)
 {
     const s32 *r = g_position_icon_rect;
     s32 x1 = g_drivers[0].view_x1, y1 = g_drivers[0].view_y1;
-    struct gfx_target was = g_gfx_target;
-    float mx, my;
-    s32 ox, oy, right, foot;
     struct sprite_pos pos;
 
-    canvas_extent(g_back_buffer, &mx, &my);
-    ox = (s32)ceilf(mx);
-    oy = (s32)ceilf(my);
-    if (ox > 0 || oy > 0) {
-        gfx_set_clip(0, 0, g_screen_width, g_screen_height);
+    if (corners_on_drawable()) {
+        return;
     }
-    right = x1 + ox - r[2];
-    foot = y1 + oy - r[3];
-    pos.x = -ox * 256;
-    pos.y = -oy * 256;
+    pos.x = 0;
+    pos.y = 0;
     sprite_draw(g_position_icons[0], &pos, NULL);
-    pos.x = right * 256;
-    pos.y = -oy * 256;
+    pos.x = (x1 - r[2]) << 8;
+    pos.y = 0;
     sprite_draw(g_position_icons[1], &pos, NULL);
-    pos.x = -ox * 256;
-    pos.y = foot * 256;
+    pos.x = 0;
+    pos.y = (y1 - r[3]) << 8;
     sprite_draw(g_position_icons[2], &pos, NULL);
-    pos.x = right * 256;
-    pos.y = foot * 256;
+    pos.x = (x1 - r[2]) << 8;
+    pos.y = (y1 - r[3]) << 8;
     sprite_draw(g_position_icons[3], &pos, NULL);
-    if (ox > 0 || oy > 0) {
-        gfx_set_clip(was.clip_x0, was.clip_y0, was.clip_x1, was.clip_y1);
-    }
 }
 
 /* 0x436990 */
