@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The black fullscreen theme; Android 9 and later also draws into the
+         display cutout (res/values-v28). -->
+    <style name="IgnitionTheme" parent="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+</resources>
