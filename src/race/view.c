@@ -11,6 +11,8 @@
 #include <math.h>
 #include <string.h>
 
+#include "canvas.h"
+#include "lisa/gfx.h"
 #include "lisa/sprite.h"
 #include "prof.h"
 #include "race/race.h"
@@ -313,25 +315,43 @@ static void replay_camera(void)
     }
 }
 
-/* The four corner pieces over a full screen view. */
+/* The four corner pieces over a full screen view. In NATIVE the screen's
+ * 320 x 200 has margins about it (canvas_extent) that the 3D fills, and
+ * the pieces go to the drawable's corners, not the 4:3 picture's. A clip
+ * of the whole screen takes the margins in (canvas.c); the one that was
+ * set is put back. */
 static void corners(void)
 {
     const s32 *r = g_position_icon_rect;
     s32 x1 = g_drivers[0].view_x1, y1 = g_drivers[0].view_y1;
+    struct gfx_target was = g_gfx_target;
+    float mx, my;
+    s32 ox, oy, right, foot;
     struct sprite_pos pos;
 
-    pos.x = 0;
-    pos.y = 0;
+    canvas_extent(g_back_buffer, &mx, &my);
+    ox = (s32)ceilf(mx);
+    oy = (s32)ceilf(my);
+    if (ox > 0 || oy > 0) {
+        gfx_set_clip(0, 0, g_screen_width, g_screen_height);
+    }
+    right = x1 + ox - r[2];
+    foot = y1 + oy - r[3];
+    pos.x = -ox * 256;
+    pos.y = -oy * 256;
     sprite_draw(g_position_icons[0], &pos, NULL);
-    pos.x = (x1 - r[2]) << 8;
-    pos.y = 0;
+    pos.x = right * 256;
+    pos.y = -oy * 256;
     sprite_draw(g_position_icons[1], &pos, NULL);
-    pos.x = 0;
-    pos.y = (y1 - r[3]) << 8;
+    pos.x = -ox * 256;
+    pos.y = foot * 256;
     sprite_draw(g_position_icons[2], &pos, NULL);
-    pos.x = (x1 - r[2]) << 8;
-    pos.y = (y1 - r[3]) << 8;
+    pos.x = right * 256;
+    pos.y = foot * 256;
     sprite_draw(g_position_icons[3], &pos, NULL);
+    if (ox > 0 || oy > 0) {
+        gfx_set_clip(was.clip_x0, was.clip_y0, was.clip_x1, was.clip_y1);
+    }
 }
 
 /* 0x436990 */
