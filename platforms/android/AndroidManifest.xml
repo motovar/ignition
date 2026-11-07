@@ -25,7 +25,7 @@
             android:launchMode="singleTask"
             android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density"
-            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+            android:theme="@style/IgnitionTheme">
             <meta-data android:name="android.app.lib_name" android:value="ignition" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -66,6 +66,8 @@ for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
     mkdir -p "$OUT/res/mipmap-${d%%:*}"
     python3 "$ROOT/tools/make_icon.py" "$OUT/res/mipmap-${d%%:*}/ic_launcher.png" "${d##*:}"
 done
+# The theme (platforms/android/res): the cutout of a camera on a short edge.
+cp -R "$HERE/res/." "$OUT/res/"
 "$BT/aapt2" compile --dir "$OUT/res" -o "$OUT/res.zip"
 "$BT/aapt2" link -o "$OUT/unsigned.apk" -I "$ANDROID_JAR" \
     --manifest "$HERE/AndroidManifest.xml" -R "$OUT/res.zip" \
