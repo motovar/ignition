@@ -41,6 +41,7 @@ extern s32 r_563d28, r_563d2c, r_563d38, r_563d3c, r_552f30, r_552f34;
 extern double r_525e30;
 extern double r_525e38;
 extern s32 r_525e48;
+extern double r_54f9a0, r_563bd0, r_563d48;   /* the tick accumulators, reset by race_reset_state */
 
 /* The race's state (0x41fe60 resets it). */
 extern double g_race_clock;             /* 0x5285d8, ticks */

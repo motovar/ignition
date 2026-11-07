@@ -35,9 +35,6 @@
 #include "video.h"
 
 double r_563d80;                /* this frame's ticks */
-double r_54f9a0_acc;            /* ticks not yet stepped (0x54f9a0) */
-double r_563bd0_acc;            /* the paths' ticks not yet stepped */
-double r_563d48_last;
 double r_553090;                /* the race's time in seconds */
 s32 r_494984;                   /* this frame's rate */
 s32 r_5285c0;                   /* the car being updated */
@@ -217,7 +214,8 @@ static void race_step(double dt)
 
     /* The fixed steps, one a tick. */
     prof_begin(PROF_TICKS);
-    for (r_54f9a0_acc += dt; r_54f9a0_acc >= 1.0; r_54f9a0_acc -= 1.0) {
+    /* 0x41781b: while the ticks left are more than 1 (not 1 or more). */
+    for (r_54f9a0 += dt; r_54f9a0 > 1.0; r_54f9a0 -= 1.0) {
         race_car_visuals();
         if (!r_563da0 && !r_5daff0) {
             race_hot_keys();
@@ -241,11 +239,11 @@ static void race_step(double dt)
         }
         race_effects_tick();
     }
-    r_563bd0_acc += (s32)(g_frame_time - r_525e48) * 0.036 - r_563d48_last;
-    for (; r_563bd0_acc >= 1.0; r_563bd0_acc -= 1.0) {
+    r_563bd0 += (s32)(g_frame_time - r_525e48) * 0.036 - r_563d48;
+    for (; r_563bd0 >= 1.0; r_563bd0 -= 1.0) {
         race_animate_objects();
     }
-    r_563d48_last = (s32)(g_frame_time - r_525e48) * 0.036;
+    r_563d48 = (s32)(g_frame_time - r_525e48) * 0.036;
     prof_end(PROF_TICKS);
     prof_begin(PROF_VIEW);
     race_view(dt);
