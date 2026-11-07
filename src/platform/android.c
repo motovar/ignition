@@ -41,6 +41,10 @@
 
 int ign_main(int argc, char **argv);
 
+/* The crash handler's state line (startup.c, soft3d, race/). */
+extern int32_t g_screen_width, g_screen_height, g_screen_size, r_494990, g_track;
+extern int g_soft3d;
+
 static struct android_app *s_app;
 static EGLDisplay s_egl_display = EGL_NO_DISPLAY;
 static EGLConfig s_egl_config;
@@ -582,6 +586,13 @@ static void crash_handler(int sig, siginfo_t *info, void *context)
         s_crash_done = 1;
         snprintf(line, sizeof(line), "ignition crash: signal %d code %d address %p", sig,
                  info != NULL ? info->si_code : 0, info != NULL ? info->si_addr : NULL);
+        crash_line(line);
+        /* What the race was at: the screen the buffers were cleared for,
+         * the renderer, a pause. */
+        snprintf(line, sizeof(line),
+                 "ignition crash: state: screen %dx%d size %d soft3d %d paused %d track %d",
+                 (int)g_screen_width, (int)g_screen_height, (int)g_screen_size, g_soft3d,
+                 (int)r_494990, (int)g_track);
         crash_line(line);
         _Unwind_Backtrace(crash_frame, &n);
         crash_line("ignition crash: end");
