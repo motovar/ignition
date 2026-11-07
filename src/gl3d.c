@@ -127,6 +127,8 @@ struct table_entry {
 static unsigned s_raster_target, s_raster_color, s_raster_dst;
 static int s_raster_w, s_raster_h;
 static unsigned s_raster_pages;
+static const u8 *s_raster_pixels;      /* the kept pages, see gl3d_raster_pages */
+static int s_raster_count;
 static struct table_entry s_tables[MAX_TABLES];
 static int s_table_count;
 static float *s_raster_verts;
@@ -537,6 +539,9 @@ void gl3d_flush(void)
 {
     int i;
 
+    /* The pages' memory goes with the background's pool. */
+    s_raster_pixels = NULL;
+    s_raster_count = 0;
     if (!s_ready) {
         return;
     }
@@ -1383,12 +1388,14 @@ static unsigned table_get(const u8 *table)
     return e->tex;
 }
 
-/* The pages, for --soft3d, which draws the commands itself. */
-static const u8 *s_raster_pixels;
+/* The pages, for --soft3d, which draws the commands itself, and for a
+ * switch from it to the GPU while they are kept (the front end's
+ * RENDERER): the GPU's are made when the first command needs them. */
 
 void gl3d_raster_pages(const u8 *pixels, int count)
 {
     s_raster_pixels = pixels;
+    s_raster_count = count;
     if (g_soft3d) {
         return;
     }
@@ -1474,6 +1481,11 @@ void gl3d_raster(u8 *target, int w, int h, int pitch, const struct raster_cmd *c
     if (g_soft3d) {
         soft3d_raster(target, w, h, pitch, cmds, count, s_raster_pixels);
         return;
+    }
+    /* The pages were loaded under SOFT 3D, which makes no GPU ones: the
+     * background would be black after a switch to HARDWARE or SOFTWARE. */
+    if (s_raster_pages == 0 && s_raster_pixels != NULL && s_raster_count > 0) {
+        s_raster_pages = rnd_pages(s_raster_pixels, s_raster_count);
     }
     gpu = canvas_is_gpu(target);
 
