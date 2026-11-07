@@ -39,6 +39,20 @@ u8 g_settings[SETTINGS_SIZE + 0x10];   /* 0x4bf580 */
 struct menu_context g_menu;             /* 0x4c50d0 */
 struct menu_snapshot g_menu_view;       /* 0x4c52a0 */
 
+/* An item's value as an index into its visuals, held to min..max: a
+ * value from the settings file outside it would read past them. */
+static int value_index(const struct menu_item *it)
+{
+    int v = *it->value;
+
+    if (v < it->min) {
+        v = it->min;
+    } else if (v > it->max) {
+        v = it->max;
+    }
+    return v - it->min;
+}
+
 static struct menu_page *s_page;        /* 0x4c5298 */
 static struct menu_page *s_prev_page;   /* 0x4c4e40 */
 static int s_depth;                     /* 0x4c529c */
@@ -164,7 +178,7 @@ static int menu_item_sprite(int index, int which, int selected)
         desc.height = v->height < 0 ? g_menu.screen_h : v->height;
     } else {
         if (it->value != NULL) {
-            v = &visuals[look + (*it->value - it->min) * 2 + 2];
+            v = &visuals[look + value_index(it) * 2 + 2];
         } else if (it->choice != NULL && it->choice->visual != NULL) {
             v = it->choice->visual;
         } else {
@@ -758,7 +772,7 @@ int menu_draw_items(void)
             menu_draw_visual(&it->visuals[look], s_sprites[i][0]);
         }
         if (it->value != NULL && it->visuals != NULL) {
-            menu_draw_visual(&it->visuals[look + (*it->value - it->min) * 2 + 2], s_sprites[i][1]);
+            menu_draw_visual(&it->visuals[look + value_index(it) * 2 + 2], s_sprites[i][1]);
         }
         ch = it->choice;
         if (ch != NULL) {

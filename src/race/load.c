@@ -187,6 +187,11 @@ static void read_settings(void)
     track_names();
 
     g_driver_count = race_cfg(0x153);
+    if (g_driver_count < 1 || g_driver_count > RACE_DRIVERS) {
+        fprintf(stderr, "ignition: driver count %d out of range\n", (int)g_driver_count);
+        log_printf("driver count %d out of range\n", (int)g_driver_count);
+        g_driver_count = g_driver_count < 1 ? 1 : RACE_DRIVERS;
+    }
     /* --soft3d draws at the original's resolutions only: the front
      * end's (--res's), and 800 x 600 for NATIVE. */
     if (g_soft3d) {
@@ -196,8 +201,19 @@ static void read_settings(void)
     }
     /* The port's NATIVE (3) takes the 800 x 600 layout. */
     g_screen_size = race_cfg(0x10b) > 2 ? 2 : race_cfg(0x10b);
+    if (g_screen_size < 0) {
+        g_screen_size = 0;      /* indexes the video mode tables */
+    }
     r_527f28 = r_563c6c = race_cfg(0x107);
+    if (r_527f28 < 0 || r_527f28 > 3) {
+        log_printf("view size %d out of range\n", (int)r_527f28);
+        r_527f28 = r_563c6c = r_527f28 < 0 ? 0 : 3;
+    }
     g_two_players = race_cfg(0x004);
+    if (g_two_players != 0 && g_two_players != 1) {
+        log_printf("players %d out of range\n", (int)g_two_players);
+        g_two_players = 0;
+    }
     g_race_net.mode = race_cfg(0x197);
     r_553068 = race_cfg(0x010);
     r_527f78 = race_cfg(0x15b);
@@ -233,6 +249,11 @@ static void read_settings(void)
         const u8 *keys = g_race_cfg + 0x17f + 8 * i;
 
         d->car = race_cfg(0x01c + 4 * i);
+        if (d->car < 0 || d->car >= 11) {
+            /* g_car_meshes has 11 models; the settings file is read as it is. */
+            log_printf("driver %d: car %d out of range\n", i, (int)d->car);
+            d->car = 0;
+        }
         d->f0c = race_cfg(0x048 + 4 * i);
         d->control = race_cfg(0x15f + 4 * i);
         d->f14 = 30;

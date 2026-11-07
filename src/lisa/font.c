@@ -39,7 +39,7 @@ static int glyph_index(unsigned char c)
 
 static int has_glyph(const struct font *f, int g)
 {
-    return g >= 0 && f->present[g] == 1;
+    return g >= 0 && f->present[g] == 1 && f->glyphs[g] != NULL;
 }
 
 /* A space in a proportional font: 0.35 of the cell width, from
