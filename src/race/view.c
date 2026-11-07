@@ -345,11 +345,13 @@ void race_view(double dt)
         r_525e2c = (float)(r_525e2c + 0.1);
         g_scene->zoom = sin(r_525e2c);
     }
+    back_guard_check("the frame's start");
     if (r_494990 == 1) {
         memset(g_back_buffer, 0, (size_t)g_screen_width * g_screen_height);
     }
     gather_radius();
     fills();
+    back_guard_check("the fills");
 
     chase_pose(g_view_car, &one);
     if (r_54f934 == 1) {
@@ -433,6 +435,7 @@ void race_view(double dt)
     g_scene_group = r_54f980 < 120.0 ? group_at(g_view_car) : 0;
     /* Split, the first player has the right half. */
     draw_3d(split ? g_screen_width / 2 : 0, g_screen_width, 1);
+    back_guard_check("the 3D");
     if (lights->in_grid == 1) {
         scene_obj_unlink(lights);
     }
@@ -440,6 +443,7 @@ void race_view(double dt)
         prof_begin(PROF_HUD);
         race_hud(g_view_car, 0);
         prof_end(PROF_HUD);
+        back_guard_check("the HUD");
     }
     if (r_4949b4) {
         race_debug_lines();
@@ -454,6 +458,7 @@ void race_view(double dt)
         }
         g_scene_group = group_at(1);
         draw_3d(0, g_screen_width / 2, 0);
+        back_guard_check("the second 3D");
         if (lights[1].in_grid == 1) {
             scene_obj_unlink(&lights[1]);
         }
@@ -462,16 +467,20 @@ void race_view(double dt)
         }
     }
     replay_numbers();
+    back_guard_check("the replay numbers");
     if (0.0 <= r_552e48 && r_552e48 < 100.0) {
         race_iris((s32)r_552e48);
+        back_guard_check("the iris");
     }
     if (players_finished() && !(r_54f980 < 120.0) && r_563c60 == 0 && r_5532b0 == 0) {
         prof_begin(PROF_RESULTS);
         race_results();
         prof_end(PROF_RESULTS);
+        back_guard_check("the results");
     }
     if (r_527f28 == 0 && (g_two_players == 0 || r_552f58 == 1)) {
         corners();
+        back_guard_check("the corners");
     }
     if (r_563c60 == 1) {
         r_552f4c = (s32)(r_552f4c - dt);
