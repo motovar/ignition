@@ -516,7 +516,13 @@ static void make_choice_sprites(void)
             s32 car;
 
             fe_4bf554 = 0;
-            car = g_car_order[*cur->items[cur->selected].value];
+            car = *cur->items[cur->selected].value;
+            /* A value from the settings file outside 0..10 would read
+             * past the table and the pictures. */
+            car = g_car_order[car < 0 || car > 10 ? 0 : car];
+            if (car < 0 || car > 10) {
+                car = 0;
+            }
             g_menu_desc.width = g_menu_desc.stride = 0xba;
             g_menu_desc.height = 0x3d;
             g_menu_desc.hot_x = 0x5d00;
@@ -529,17 +535,27 @@ static void make_choice_sprites(void)
         struct menu_page *tracks = page(PAGE_TRACK);
         int locked = 2 - page(PAGE_DIFFICULTY)->items[0].max;
 
-        tracks->items[6].kind = 1;
-        tracks->items[7].kind = 1;
-        for (i = 0; i < locked; i++) {
-            tracks->items[7 - i].kind = 0;
+        /* The original sets the kind of items 6 and 7, but the page has 7:
+         * its 8th record is whatever follows the table, and here a
+         * neighbouring page's action or a visual's pixel pointer took the
+         * write (a pixel pointer of 1 crashed the next sprite made). */
+        for (i = 6; i < 8; i++) {
+            if (i < tracks->count) {
+                tracks->items[i].kind = 1;
+            }
+        }
+        for (i = 0; i < locked && i < 2; i++) {
+            if (7 - i < tracks->count) {
+                tracks->items[7 - i].kind = 0;
+            }
         }
         fe_4be728 = 0;
         g_menu_desc.width = g_menu_desc.stride = 0x73;
         g_menu_desc.height = 0x63;
         g_menu_desc.hot_x = 0x3980;
         g_menu_desc.hot_y = 0x3980;
-        g_menu_desc.pixels = g_pic_tracks + g_track_pic_offsets[tracks->selected];
+        g_menu_desc.pixels = g_pic_tracks
+            + g_track_pic_offsets[tracks->selected < 0 || tracks->selected > 7 ? 0 : tracks->selected];
         g_sprite_track = sprite_create(&g_menu_desc, g_sprite_track);
     }
     if ((changed && cur == page(PAGE_LANGUAGE)) || fe_4be6d8) {
