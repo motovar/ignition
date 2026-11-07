@@ -285,6 +285,19 @@ static inline s32 sw_sub(s32 a, s32 b)
     return (s32)((u32)a - (u32)b);
 }
 
+/* 0x46950c, the original's _ftol: the value truncated to a 64 bit integer
+ * (fistp with the rounding set to chop) and its low 32 bits kept, so a
+ * value past 32 bits wraps. One past 64 bits, or not a number, is the
+ * integer indefinite, 0x8000000000000000, whose low 32 bits are 0. A C
+ * cast of such a value is undefined: x86 gives INT_MIN, ARM saturates. */
+static inline s32 sw_ftol(double v)
+{
+    if (!(v >= -9223372036854775808.0 && v < 9223372036854775808.0)) {
+        return 0;
+    }
+    return (s32)(u32)(u64)(int64_t)v;
+}
+
 /* idiv: the quotient toward zero; a zero or overflowing divide, which
  * would fault in the original, gives 0. */
 static inline s32 sw_div(s32 a, s32 b)

@@ -108,15 +108,15 @@ static void cull_rows(s32 r[9])
     double t3 = sc->roll * -0.0017453292519943333;
     double c3 = cos(t3), s1 = sin(t1), s1s2 = s1 * sin(t2), c1 = cos(t1), s1c2 = s1 * cos(t2);
 
-    r[0] = (s32)((c3 * cos(t2) - s1s2 * sin(t3)) * 16384.0);
-    r[1] = (s32)(c1 * sin(t3) * -16384.0);
-    r[2] = (s32)((c3 * sin(t2) + s1c2 * sin(t3)) * 16384.0);
-    r[3] = (s32)((cos(t2) * sin(t3) + c3 * s1s2) * 16384.0);
-    r[4] = (s32)(c3 * c1 * 16384.0);
-    r[5] = (s32)((sin(t3) * sin(t2) - c3 * s1c2) * 16384.0);
-    r[6] = (s32)(c1 * sin(t2) * -16384.0);
-    r[7] = (s32)(s1 * 16384.0);
-    r[8] = (s32)(c1 * cos(t2) * 16384.0);
+    r[0] = sw_ftol((c3 * cos(t2) - s1s2 * sin(t3)) * 16384.0);
+    r[1] = sw_ftol(c1 * sin(t3) * -16384.0);
+    r[2] = sw_ftol((c3 * sin(t2) + s1c2 * sin(t3)) * 16384.0);
+    r[3] = sw_ftol((cos(t2) * sin(t3) + c3 * s1s2) * 16384.0);
+    r[4] = sw_ftol(c3 * c1 * 16384.0);
+    r[5] = sw_ftol((sin(t3) * sin(t2) - c3 * s1c2) * 16384.0);
+    r[6] = sw_ftol(c1 * sin(t2) * -16384.0);
+    r[7] = sw_ftol(s1 * 16384.0);
+    r[8] = sw_ftol(c1 * cos(t2) * 16384.0);
 }
 
 /* A cell's objects into the visible list, as both of 0x448e70's walks
@@ -172,8 +172,8 @@ static void gather_cull(void)
         double a = sc->yaw * 0.0017453292519943333;
         s32 third = sc->gather_radius / 3, half = sc->gather_radius / 2;
 
-        cell = ((s32)(cos(a) * third) + trunc256((s32)sc->z) - half) * gw;
-        cell += (s32)(third * sin(a)) + trunc256((s32)sc->x) - half;
+        cell = (sw_ftol(cos(a) * third) + trunc256(sw_ftol(sc->z)) - half) * gw;
+        cell += sw_ftol(third * sin(a)) + trunc256(sw_ftol(sc->x)) - half;
         for (row = sc->gather_radius; row > 0; row--) {
             for (col = sc->gather_radius; col > 0; col--, cell++) {
                 if (cell >= 0 && cell < gw * gh) {
@@ -183,15 +183,15 @@ static void gather_cull(void)
             cell += gw - sc->gather_radius;
         }
     } else {
-        int sector = (s32)(sc->pitch * 0.01) * 36 + (s32)(sc->yaw * 0.01), k;
+        int sector = sw_ftol(sc->pitch * 0.01) * 36 + sw_ftol(sc->yaw * 0.01), k;
         const s32 *ahead;
 
         if (sector < 0 || sector >= 36 * 36) {
             sector = 0;
         }
         ahead = &g_cells_ahead[2 * sector];
-        cell = (ahead[1] + trunc256((s32)sc->z) + g_cells_disc[1]) * gw;
-        cell += trunc256((s32)sc->x) + ahead[0] + g_cells_disc[2];
+        cell = (ahead[1] + trunc256(sw_ftol(sc->z)) + g_cells_disc[1]) * gw;
+        cell += trunc256(sw_ftol(sc->x)) + ahead[0] + g_cells_disc[2];
         /* Rows of (cells, step to the next row); the last row's step is
          * -5000, and so is the count the original reads after it, past
          * the table's end. */
@@ -215,7 +215,7 @@ static void gather_cull(void)
     sc->obj_count = 0;
     for (i = 0; i < n; i++) {
         struct scene_obj *o = g_scene_visible[i];
-        s32 dx = (s32)(o->x - sc->x), dy = (s32)(o->y - sc->y), dz = (s32)(o->z - sc->z);
+        s32 dx = sw_ftol(o->x - sc->x), dy = sw_ftol(o->y - sc->y), dz = sw_ftol(o->z - sc->z);
         s32 rad = o->radius, z, s, e;
 
         z = (dot3(r + 6, dx, dy, dz) >> 15) + sc->near_ofs;
@@ -270,7 +270,7 @@ static void view_rows(double k, int late_round)
     s_mf[7] = (float)(s1 * 262144.0);
     s_mf[8] = (float)(c2 * c1 * 262144.0);
     for (i = 0; i < 9; i++) {
-        s_m[i] = (s32)s_mf[i];
+        s_m[i] = sw_ftol(s_mf[i]);
     }
 }
 
@@ -282,12 +282,12 @@ static void camera_frac(s32 cam[3])
     s32 f[3];
     int i;
 
-    cam[0] = (s32)sc->x;
-    cam[1] = (s32)sc->y;
-    cam[2] = (s32)sc->z;
-    f[0] = (s32)((sc->x - cam[0]) * 4096.0);
-    f[1] = (s32)((sc->y - cam[1]) * 4096.0);
-    f[2] = (s32)((sc->z - cam[2]) * 4096.0);
+    cam[0] = sw_ftol(sc->x);
+    cam[1] = sw_ftol(sc->y);
+    cam[2] = sw_ftol(sc->z);
+    f[0] = sw_ftol((sc->x - cam[0]) * 4096.0);
+    f[1] = sw_ftol((sc->y - cam[1]) * 4096.0);
+    f[2] = sw_ftol((sc->z - cam[2]) * 4096.0);
     for (i = 0; i < 3; i++) {
         s32 v = sw_add(sw_add(sw_mul(f[0], s_m[3 * i]), sw_mul(s_m[3 * i + 2], f[2])),
                        sw_mul(s_m[3 * i + 1], f[1]));
@@ -374,19 +374,19 @@ static void project_turned(s32 dx, s32 dy, s32 dz, struct scene_obj *o, const s3
         v38 = (float)(nsy * sz + (double)v30 * cz);
     }
     v34 = (float)(cx * cy);
-    q[0] = (s32)(((double)v3c * s_mf[2] + (double)v48 * s_mf[1]) + (double)v54 * s_mf[0]);
-    q[1] = (s32)(((double)v38 * s_mf[2] + (double)v44 * s_mf[1]) + (double)v50 * s_mf[0]);
-    q[2] = (s32)(((double)v34 * s_mf[2] + (double)v4c * s_mf[0]) + s_mf[1] * nsx);
-    q[3] = (s32)(((double)v3c * s_mf[5] + (double)v48 * s_mf[4]) + (double)v54 * s_mf[3]);
-    q[4] = (s32)(((double)v38 * s_mf[5] + (double)v50 * s_mf[3]) + (double)v44 * s_mf[4]);
-    q[5] = (s32)(((double)v34 * s_mf[5] + (double)v4c * s_mf[3]) + s_mf[4] * nsx);
-    q[6] = (s32)(((double)v48 * s_mf[7] + (double)v3c * s_mf[8]) + (double)v54 * s_mf[6]);
+    q[0] = sw_ftol(((double)v3c * s_mf[2] + (double)v48 * s_mf[1]) + (double)v54 * s_mf[0]);
+    q[1] = sw_ftol(((double)v38 * s_mf[2] + (double)v44 * s_mf[1]) + (double)v50 * s_mf[0]);
+    q[2] = sw_ftol(((double)v34 * s_mf[2] + (double)v4c * s_mf[0]) + s_mf[1] * nsx);
+    q[3] = sw_ftol(((double)v3c * s_mf[5] + (double)v48 * s_mf[4]) + (double)v54 * s_mf[3]);
+    q[4] = sw_ftol(((double)v38 * s_mf[5] + (double)v50 * s_mf[3]) + (double)v44 * s_mf[4]);
+    q[5] = sw_ftol(((double)v34 * s_mf[5] + (double)v4c * s_mf[3]) + s_mf[4] * nsx);
+    q[6] = sw_ftol(((double)v48 * s_mf[7] + (double)v3c * s_mf[8]) + (double)v54 * s_mf[6]);
     if (shift == 0) {
-        q[7] = (s32)(((double)v50 * s_mf[6] + (double)v44 * s_mf[7]) + (double)v38 * s_mf[8]);
+        q[7] = sw_ftol(((double)v50 * s_mf[6] + (double)v44 * s_mf[7]) + (double)v38 * s_mf[8]);
     } else {
-        q[7] = (s32)(((double)v50 * s_mf[6] + (double)v38 * s_mf[8]) + (double)v44 * s_mf[7]);
+        q[7] = sw_ftol(((double)v50 * s_mf[6] + (double)v38 * s_mf[8]) + (double)v44 * s_mf[7]);
     }
-    q[8] = (s32)(((double)v4c * s_mf[6] + (double)v34 * s_mf[8]) + s_mf[7] * nsx);
+    q[8] = sw_ftol(((double)v4c * s_mf[6] + (double)v34 * s_mf[8]) + s_mf[7] * nsx);
 
     n = mesh[0];
     if (n <= 0) {

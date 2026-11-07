@@ -188,9 +188,9 @@ static void face_sprite(void)
         c->x = v->x;
         c->y = v->y;
         sprite_src(c, g_sw_shd);
-        c->scale_.sx = (s32)(FACE_WORD(7) * k);
-        c->scale_.sy = (s32)(FACE_WORD(8) * k);
-        sw_cmd_bucket(nearer((s32)(v->z * 2.8) >> 4));
+        c->scale_.sx = sw_ftol(FACE_WORD(7) * k);
+        c->scale_.sy = sw_ftol(FACE_WORD(8) * k);
+        sw_cmd_bucket(nearer(sw_ftol(v->z * 2.8) >> 4));
     }
     g_sw_face += 0x24;
 }
@@ -209,9 +209,9 @@ static void face_sprite_fixed(void)
         c->x = v->x & ~0xff;
         c->y = v->y & ~0xff;
         sprite_src(c, g_sw_pan);
-        c->scale_.sx = (s32)((double)0.003952569328248501f * fy * FACE_WORD(7));
-        c->scale_.sy = (s32)(fy * 0.004820206304829848 * FACE_WORD(8));
-        sw_cmd_bucket(nearer((s32)(v->z * 2.8) >> 4));
+        c->scale_.sx = sw_ftol((double)0.003952569328248501f * fy * FACE_WORD(7));
+        c->scale_.sy = sw_ftol(fy * 0.004820206304829848 * FACE_WORD(8));
+        sw_cmd_bucket(nearer(sw_ftol(v->z * 2.8) >> 4));
     }
     g_sw_face += 0x24;
 }
@@ -453,9 +453,9 @@ static void put_persp(const struct sw_vert *a, const struct sw_vert *b, const st
             f = (float)f;
         }
 
-        c->v[0].z = (s32)((double)(a->z - mean) * f) + mean;
-        c->v[1].z = (s32)((double)(b->z - mean) * f) + mean;
-        c->v[2].z = (s32)((double)(v->z - mean) * f) + mean;
+        c->v[0].z = sw_ftol((double)(a->z - mean) * f) + mean;
+        c->v[1].z = sw_ftol((double)(b->z - mean) * f) + mean;
+        c->v[2].z = sw_ftol((double)(v->z - mean) * f) + mean;
     }
     c->type = type;
     c->v[0].x = a->x;
