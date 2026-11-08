@@ -24,4 +24,10 @@ u32 touch_buttons(int w, int h);
 /* Draws the pad over the frame on the screen (rnd.h). */
 void touch_draw(int w, int h);
 
+/* The player's boost, for the action button to show it as the HUD's bar
+ * does (race/hud.c sets them): the level 0 to 1 (1 is full, the bar's
+ * lamp blinking), -1 when there is no race; and whether it burns. */
+extern float g_touch_boost;
+extern int g_touch_boost_on;
+
 #endif /* IGN_PLATFORM_TOUCH_H */

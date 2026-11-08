@@ -13,7 +13,9 @@
  * hides the picked button (a hidden button shows faintly in the editor;
  * tapping it brings it back), the circular arrow puts everything back
  * and the check mark keeps the layout, in touchpad.cfg in the working
- * folder.
+ * folder. The boost gauge toggle (a bar) switches whether the action
+ * button, in a race, fills from its foot with the boost as the HUD's bar
+ * does, and shows when it is full.
  */
 
 #include <math.h>
@@ -32,13 +34,14 @@ enum icon {
     I_LOOK,                     /* Y: look back */
     I_PAUSE,                    /* Start */
     I_MENU,                     /* Select */
-    I_MOVE, I_TRASH, I_RESET, I_DONE,
+    I_MOVE, I_TRASH, I_RESET, I_DONE, I_GAUGE,
     I_SIZE, I_OPACITY, I_BORDER, I_KNOB,   /* the sliders': no ring */
+    I_FILL,                     /* the boost's level in the action button */
     ICONS
 };
 
 /* A button's look: V_LIT is held (or picked); the editor's are amber. */
-enum { V_NORMAL, V_LIT, V_EDIT, V_TOOL, V_GHOST, VARIANTS };
+enum { V_NORMAL, V_LIT, V_EDIT, V_TOOL, V_GHOST, V_FILL, V_FILL_HI, V_FILL_LOW, VARIANTS };
 
 /* In units of a sixth of the screen's height from the bottom left
  * (x < 0: from the right edge). */
@@ -84,8 +87,8 @@ enum {
 #define BORDER_DEFAULT 0.117f
 #define CONFIG_FILE "touchpad.cfg"
 
-enum { T_TRASH, T_RESET, T_DONE, TOOLS };
-static const int s_tool_icon[TOOLS] = { I_TRASH, I_RESET, I_DONE };
+enum { T_TRASH, T_RESET, T_GAUGE, T_DONE, TOOLS };
+static const int s_tool_icon[TOOLS] = { I_TRASH, I_RESET, I_GAUGE, I_DONE };
 
 enum { S_SIZE, S_OPACITY, S_BORDER, SLIDERS };
 static const int s_slider_icon[SLIDERS] = { I_SIZE, I_OPACITY, I_BORDER };
@@ -105,6 +108,12 @@ static struct place s_layout[ITEMS];
 static u8 s_hidden[ITEMS];
 static float s_scale = 1.0f, s_alpha = 1.0f, s_border = BORDER_DEFAULT;
 static int s_seen, s_loaded, s_edit, s_pick = -1;
+static int s_boost_gauge = 1;   /* the action button shows the boost in a race */
+static int s_frame;             /* touch_draw's frames, for the blinking */
+
+/* The boost, set by the race (platform/touch.h). */
+float g_touch_boost = -1.0f;
+int g_touch_boost_on;
 static int s_w, s_h;            /* the drawable's size, as last given */
 
 /* ------------------------------------------------------------ layout */
@@ -125,6 +134,7 @@ static void default_layout(void)
     s_scale = 1.0f;
     s_alpha = 1.0f;
     s_border = BORDER_DEFAULT;
+    s_boost_gauge = 1;
 }
 
 static int ok_place(const struct place *p)
@@ -141,13 +151,13 @@ static void load_layout(void)
     struct place read[ITEMS];
     int hidden[ITEMS];
     float scale = 1.0f, alpha = 1.0f, border = BORDER_DEFAULT;
-    int i, n, version = 0;
+    int i, n, version = 0, gauge = 1;
 
     if (fp == NULL) {
         return;
     }
-    if (fscanf(fp, "ignition-touchpad %d", &version) == 1 && (version >= 1 && version <= 3)) {
-        n = version == 3 ? ITEMS : BUTTONS;
+    if (fscanf(fp, "ignition-touchpad %d", &version) == 1 && (version >= 1 && version <= 4)) {
+        n = version >= 3 ? ITEMS : BUTTONS;
         if (version >= 2 && fscanf(fp, "%f %f %f", &scale, &alpha, &border) != 3) {
             version = 0;
         }
@@ -158,7 +168,11 @@ static void load_layout(void)
                 version = 0;
             }
         }
+        if (version == 4 && fscanf(fp, "%d", &gauge) != 1) {
+            gauge = 1;
+        }
         if (version != 0) {
+            s_boost_gauge = gauge != 0;
             for (i = 0; i < n; i++) {
                 s_layout[i] = read[i];
                 s_hidden[i] = hidden[i] != 0 && i != EDIT_ITEM;
@@ -179,11 +193,12 @@ static void save_layout(void)
     if (fp == NULL) {
         return;
     }
-    fprintf(fp, "ignition-touchpad 3\n%.3f %.3f %.3f\n", s_scale, s_alpha, s_border);
+    fprintf(fp, "ignition-touchpad 4\n%.3f %.3f %.3f\n", s_scale, s_alpha, s_border);
     for (i = 0; i < ITEMS; i++) {
         fprintf(fp, "%.3f %.3f %.3f %d\n", s_layout[i].x, s_layout[i].y, s_layout[i].r,
                 s_hidden[i]);
     }
+    fprintf(fp, "%d\n", s_boost_gauge);
     fclose(fp);
 }
 
@@ -240,7 +255,7 @@ static void tool_place(int k, int w, int h, float *cx, float *cy, float *r)
 {
     float unit = (float)h / 6.0f;
 
-    *cx = (float)w * 0.5f + ((float)k - 1.0f) * 1.1f * unit;
+    *cx = (float)w * 0.5f + ((float)k - (float)(TOOLS - 1) * 0.5f) * 1.1f * unit;
     *cy = (float)h - 1.6f * unit;
     *r = 0.42f * unit;
 }
@@ -362,6 +377,9 @@ static void tool_action(int tool)
         default_layout();
         s_pick = -1;
         s_gen++;
+        break;
+    case T_GAUGE:
+        s_boost_gauge = !s_boost_gauge;
         break;
     default:
         save_layout();
@@ -584,6 +602,14 @@ static int glyph(int icon, float u, float v)
         return r > 0.42f && r < 0.86f;
     case I_KNOB:
         return r < 0.85f;
+    case I_FILL:        /* inside the ring */
+        return r < 0.84f;
+    case I_GAUGE: {     /* the bar: its frame, half full */
+        int frame = in_box(u, v, -0.24f, -0.46f, 0.24f, 0.46f)
+            && !in_box(u, v, -0.15f, -0.37f, 0.15f, 0.37f);
+
+        return frame || in_box(u, v, -0.09f, 0.0f, 0.09f, 0.31f);
+    }
     default:
         return 0;
     }
@@ -632,6 +658,8 @@ static const struct rgb C_WHITE = { 0.92f, 0.92f, 0.92f };
 static const struct rgb C_AMBER = { 1.0f, 0.745f, 0.157f };
 static const struct rgb C_GREY = { 0.59f, 0.59f, 0.59f };
 static const struct rgb C_DARK = { 0.137f, 0.137f, 0.137f };
+static const struct rgb C_YELLOW = { 1.0f, 0.84f, 0.12f };    /* the HUD bar's */
+static const struct rgb C_RED = { 1.0f, 0.3f, 0.16f };
 
 /* `src` of coverage `a` over the premultiplied pixel `px`. */
 static void over(float *px, struct rgb c, float a)
@@ -666,6 +694,18 @@ static void make_icon(int icon, int variant, u8 *out)
         break;
     case V_GHOST:
         alpha = 0.22f;
+        break;
+    case V_FILL:
+        line = C_YELLOW;
+        alpha = 0.5f;
+        break;
+    case V_FILL_HI:
+        line = C_YELLOW;
+        alpha = 0.9f;
+        break;
+    case V_FILL_LOW:
+        line = C_RED;
+        alpha = 0.55f;
         break;
     default:
         break;
@@ -742,6 +782,32 @@ static void draw_icon(int icon, int variant, float cx, float cy, float r, int w,
     draw_quad(icon_texture(icon, variant), cx - r, cy - r, cx + r, cy + r, w, h);
 }
 
+/* The boost in the action button: a fill from its foot as high as the
+ * HUD's bar, the bar's colour; full it blinks slowly bright as the lamp
+ * does, burning or too low to use (under a fifth) it blinks fast. */
+static void draw_boost(float cx, float cy, float r, int w, int h)
+{
+    float level = g_touch_boost > 1.0f ? 1.0f : g_touch_boost;
+    float top = cy + 0.84f * r - level * 1.68f * r, foot = cy + r;
+    int variant = V_FILL, y0, y1;
+
+    if (g_touch_boost_on) {
+        variant = (s_frame / 4) % 2 ? V_FILL_HI : V_FILL;
+    } else if (level >= 1.0f) {
+        variant = (s_frame / 15) % 2 ? V_FILL_HI : V_FILL;
+    } else if (level < 0.2f) {
+        variant = (s_frame / 4) % 2 ? V_FILL_LOW : V_FILL;
+    }
+    y0 = (int)floorf(top);
+    y1 = (int)ceilf(foot);
+    if (y1 <= y0) {
+        return;
+    }
+    rnd_scissor(1, (int)floorf(cx - r), h - y1, (int)ceilf(2.0f * r) + 1, y1 - y0);
+    draw_icon(I_FILL, variant, cx, cy, r, w, h);
+    rnd_scissor(0, 0, 0, 0, 0);
+}
+
 void touch_draw(int w, int h)
 {
     u32 on;
@@ -751,6 +817,7 @@ void touch_draw(int w, int h)
 
     s_w = w;
     s_h = h;
+    s_frame++;
     ensure_layout();
     if (!s_seen || w <= 0 || h <= 0) {
         return;
@@ -777,12 +844,16 @@ void touch_draw(int w, int h)
         variant = s_edit ? (s_hidden[i] ? V_GHOST : i == s_pick ? V_LIT : V_EDIT)
                          : (on & s_buttons[i].pad) ? V_LIT : V_NORMAL;
         place(i, w, h, &cx, &cy, &r);
+        if (s_boost_gauge && !s_edit && s_buttons[i].icon == I_ACTION && g_touch_boost >= 0.0f) {
+            draw_boost(cx, cy, r, w, h);
+        }
         draw_icon(s_buttons[i].icon, variant, cx, cy, r, w, h);
     }
     if (s_edit) {
         for (i = 0; i < TOOLS; i++) {
             tool_place(i, w, h, &cx, &cy, &r);
-            draw_icon(s_tool_icon[i], V_TOOL, cx, cy, r, w, h);
+            draw_icon(s_tool_icon[i], i == T_GAUGE && !s_boost_gauge ? V_GHOST : V_TOOL, cx, cy, r, w,
+                      h);
         }
         for (i = 0; i < SLIDERS; i++) {
             float x0, x1, y, lx, lr, lo, hi, value, kx, thin = (float)h / 6.0f * 0.04f;
