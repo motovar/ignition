@@ -417,6 +417,24 @@ void race_load_world(void)
     }
     race_frame_time();
     race_clear_laps();
+    /* For the HUD's outline and the iris, which go through g_level_pan over
+     * the clear back buffer (colour 0): what the track's palette and table
+     * make of it. Colour 0's value, and what 0, 1, 2, 4, 8, 16, 32, 64, 128
+     * and 255 shade colour 0 to. */
+    if (g_level_col != NULL && g_level_pan != NULL) {
+        static const int levels[10] = { 0, 1, 2, 4, 8, 16, 32, 64, 128, 255 };
+        char line[160];
+        int k, len;
+
+        len = snprintf(line, sizeof(line), "race palette: track %d, colour 0 = %d %d %d, 1 = %d %d %d, pan[l][0] =",
+                       g_track, g_level_col[8], g_level_col[9], g_level_col[10], g_level_col[11],
+                       g_level_col[12], g_level_col[13]);
+        for (k = 0; k < 10 && len < (int)sizeof(line) - 6; k++) {
+            len += snprintf(line + len, sizeof(line) - len, " %d", g_level_pan[levels[k] << 8]);
+        }
+        log_printf("%s\
+", line);
+    }
     /* A port's test switch: the computer drives the player's car. Not
      * through the original's autopilot (f604), which it turns on after
      * the finish and which counts no laps, but as one of its drivers. */
