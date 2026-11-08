@@ -87,17 +87,24 @@ void draw_sprite_scaled(const struct sprite *s, int x, int y, float scale, float
 void blend_rect(const u8 *src, int x0, int y0, int x1, int y1, u8 *dst, int dx, int dy,
                 const u8 *table, int src_pitch, int dst_pitch)
 {
-    int r, x;
+    int r, x, shade;
 
     if (canvas_blend_rect(src, x0, y0, x1, y1, dst, dx, dy, table, src_pitch)) {
         return;
     }
+    /* Over a layered 3D's clear buffer the pixel under is the 3D's, which
+     * the table's row is put through on the GPU (lisa/gfx.h). */
+    shade = g_gfx_shade != NULL && dst == g_gfx_shade_base && table == g_gfx_shade_table;
     for (r = 0; r < y1 - y0; r++) {
         const u8 *s = src + (y0 + r) * src_pitch;
         u8 *d = dst + (dy + r) * dst_pitch + dx - x0;
 
         for (x = x0; x < x1; x++) {
-            d[x] = table[s[x] << 8 | d[x]];
+            if (shade && d[x] == 0 && s[x] != 0) {
+                gfx_shade_set(dx + (x - x0), dy + r, s[x], 0);
+            } else {
+                d[x] = table[s[x] << 8 | d[x]];
+            }
         }
     }
 }
@@ -107,11 +114,12 @@ void blend_rect(const u8 *src, int x0, int y0, int x1, int y1, u8 *dst, int dx, 
 void blend_rect_scaled(const u8 *src, int x0, int y0, int x1, int y1, u8 *dst, int dx, int dy,
                        int dw, int dh, const u8 *table, int src_pitch, int dst_w, int dst_h)
 {
-    int r, c, w = x1 - x0, h = y1 - y0;
+    int r, c, w = x1 - x0, h = y1 - y0, shade;
 
     if (canvas_blend_scaled(src, x0, y0, x1, y1, dst, dx, dy, dw, dh, table, src_pitch)) {
         return;
     }
+    shade = g_gfx_shade != NULL && dst == g_gfx_shade_base && table == g_gfx_shade_table;
     for (r = 0; r < dh; r++) {
         const u8 *s = src + (y0 + r * h / dh) * src_pitch + x0;
         u8 *d = dst + (dy + r) * dst_w;
@@ -121,7 +129,13 @@ void blend_rect_scaled(const u8 *src, int x0, int y0, int x1, int y1, u8 *dst, i
         }
         for (c = 0; c < dw; c++) {
             if (dx + c >= 0 && dx + c < dst_w) {
-                d[dx + c] = table[s[c * w / dw] << 8 | d[dx + c]];
+                u8 sp = s[c * w / dw];
+
+                if (shade && d[dx + c] == 0 && sp != 0) {
+                    gfx_shade_set(dx + c, dy + r, sp, 0);
+                } else {
+                    d[dx + c] = table[sp << 8 | d[dx + c]];
+                }
             }
         }
     }
