@@ -111,6 +111,26 @@ static void blit(const struct tex_desc *t, s32 x, s32 y)
         return;
     }
     dst = g->base + y * g->pitch + x;
+    if (g_gfx_shade != NULL && g->base == g_gfx_shade_base && table == g_gfx_shade_table) {
+        /* Over the clear buffer of a layered 3D the shade is the 3D's
+         * pixel through the row of the source colour (gfx.h): it is
+         * kept for the layer's draw. */
+        while (h-- > 0) {
+            for (i = 0; i < w; i++) {
+                u8 s = src[i], d = dst[i];
+
+                if (d == 0 && s != 0) {
+                    gfx_shade_set(x + i, y, s, 0);
+                } else {
+                    dst[i] = table[s << 8 | d];
+                }
+            }
+            src += t->stride;
+            dst += g->pitch;
+            y++;
+        }
+        return;
+    }
     while (h-- > 0) {
         for (i = 0; i < w; i++) {
             dst[i] = table[src[i] << 8 | dst[i]];

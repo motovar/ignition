@@ -40,4 +40,26 @@ int set_target(u8 *base, int pitch, int width, int height, int bpp);
  * the rectangle is empty or not inside the target. */
 int gfx_set_clip(int x0, int y0, int x1, int y1);
 
+/* The port's 3D that is drawn apart, a layer (video_set_layer), has the
+ * HUD in a buffer that is clear (0) where the 3D shows. The original
+ * draws it over the 3D in the same buffer, and the colour table (the
+ * shade, table[level << 8 | pixel]) makes of the pixel under it
+ * table[level << 8 | pixel]. Here that pixel is the 3D's, which is only
+ * on the GPU: g_gfx_shade keeps the levels instead, two bytes for each
+ * pixel of the layer (the HUD's shade, then the iris's), and the
+ * layer's draw puts the 3D's index through those rows of the table.
+ * It is g_gfx_shade_w wide, g_gfx_shade_ox columns of it before the
+ * target's first and as many after its last. NULL when there is none. */
+extern u8 *g_gfx_shade;
+extern int g_gfx_shade_w, g_gfx_shade_h, g_gfx_shade_ox, g_gfx_shade_used;
+extern double g_gfx_shade_ox_f;      /* the columns the 3D has past the screen, exactly */
+extern const u8 *g_gfx_shade_base;    /* the target it is for */
+extern const u8 *g_gfx_shade_table;   /* the shade table */
+
+void gfx_shade_begin(int w, int h, double ox, const u8 *base, const u8 *table);
+void gfx_shade_end(void);
+/* The row `level` of the table over x, y of the target (x may be outside
+ * it by ox). `second` is the iris's. */
+void gfx_shade_set(int x, int y, int level, int second);
+
 #endif /* IGN_LISA_GFX_H */
