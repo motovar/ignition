@@ -24,6 +24,7 @@
 #include "lisa/sprite.h"
 #include "menu/pages.h"
 #include "menu/panels.h"
+#include "platform/touch.h"
 #include "race/race.h"
 #include "race/fx.h"
 #include "race/camera.h"
@@ -1319,4 +1320,6 @@ void race_end(void)
      * race's last view. */
     video_set_layer(0, NULL);
     gfx_shade_end();
+    g_touch_boost = -1.0f;
+    g_touch_boost_on = 0;
 }

@@ -20,6 +20,7 @@
 #include "lisa/font.h"
 #include "lisa/gfx.h"
 #include "lisa/sprite.h"
+#include "platform/touch.h"
 #include "race/race.h"
 #include "race/cars.h"
 #include "race/contact.h"
@@ -40,6 +41,10 @@ struct sprite *g_hud_panels[4];
 struct sprite *g_hud_needle_cap;
 struct sprite *g_hud_gears[9];
 struct sprite *g_hud_boost[3];
+
+/* The boost for the touch pad's action button (platform/touch.h). */
+float g_touch_boost = -1.0f;
+int g_touch_boost_on;
 struct sprite *g_hud_lights[4];
 struct sprite *g_hud_signs16[16];
 struct sprite *g_race_5286f4[6];
@@ -615,6 +620,10 @@ void race_hud(int view, int second)
     }
     draw_at(g_hud_boost[0], s_places[13] + x1, s_places[14] + y1, NULL);
     boost_lamp(c, x1, y1);
+    if (view == 0) {
+        g_touch_boost = (float)(c->f534 / 100.0);
+        g_touch_boost_on = c->f53c != 0;
+    }
     if (c->f528 == 0 && r_552e48 == -1.0) {
         signs(view, y0);
     }
