@@ -15,7 +15,7 @@
  * and the check mark keeps the layout, in touchpad.cfg in the working
  * folder. The boost gauge toggle (a bar) switches whether the action
  * button's bolt, in a race, fills from its foot with the boost as the
- * HUD's bar does, and the button glows when it is full.
+ * HUD's bar does, and turns green when it is full.
  */
 
 #include <math.h>
@@ -36,12 +36,12 @@ enum icon {
     I_MENU,                     /* Select */
     I_MOVE, I_TRASH, I_RESET, I_DONE, I_GAUGE,
     I_SIZE, I_OPACITY, I_BORDER, I_KNOB,   /* the sliders': no ring */
-    I_BOLT, I_FILL,             /* the action button's boost: its bolt, and a glow */
+    I_BOLT,                     /* the action button's boost: its bolt, no ring */
     ICONS
 };
 
 /* A button's look: V_LIT is held (or picked); the editor's are amber. */
-enum { V_NORMAL, V_LIT, V_EDIT, V_TOOL, V_GHOST, V_FILL, V_FILL_HI, V_FILL_LOW, VARIANTS };
+enum { V_NORMAL, V_LIT, V_EDIT, V_TOOL, V_GHOST, V_FILL, V_FILL_FULL, V_FILL_LOW, VARIANTS };
 
 /* In units of a sixth of the screen's height from the bottom left
  * (x < 0: from the right edge). */
@@ -600,8 +600,6 @@ static int glyph(int icon, float u, float v)
         return r > 0.42f && r < 0.86f;
     case I_KNOB:
         return r < 0.85f;
-    case I_FILL:        /* inside the ring */
-        return r < 0.84f;
     case I_GAUGE: {     /* the bar: its frame, half full */
         int frame = in_box(u, v, -0.24f, -0.46f, 0.24f, 0.46f)
             && !in_box(u, v, -0.15f, -0.37f, 0.15f, 0.37f);
@@ -658,6 +656,7 @@ static const struct rgb C_GREY = { 0.59f, 0.59f, 0.59f };
 static const struct rgb C_DARK = { 0.137f, 0.137f, 0.137f };
 static const struct rgb C_YELLOW = { 1.0f, 0.84f, 0.12f };    /* the HUD bar's */
 static const struct rgb C_RED = { 1.0f, 0.3f, 0.16f };
+static const struct rgb C_GREEN = { 0.2f, 0.9f, 0.25f };
 
 /* `src` of coverage `a` over the premultiplied pixel `px`. */
 static void over(float *px, struct rgb c, float a)
@@ -697,9 +696,9 @@ static void make_icon(int icon, int variant, u8 *out)
         line = C_YELLOW;
         alpha = 1.0f;
         break;
-    case V_FILL_HI:     /* the glow of a full boost */
-        line = C_YELLOW;
-        alpha = 0.4f;
+    case V_FILL_FULL:   /* the bolt of a full boost */
+        line = C_GREEN;
+        alpha = 1.0f;
         break;
     case V_FILL_LOW:    /* too little to use */
         line = C_RED;
@@ -781,33 +780,31 @@ static void draw_icon(int icon, int variant, float cx, float cy, float r, int w,
 }
 
 /* The boost in the action button, in its bolt: the bolt fills yellow from
- * its foot as high as the HUD's bar, and the button glows behind when it
- * is full, blinking slowly as the HUD's lamp does. Burning, or too little
- * to use (under a fifth, then red), the bolt blinks fast. `front` is the
- * bolt, drawn over the button; not it, the glow, drawn under it. */
-static void draw_boost(float cx, float cy, float r, int w, int h, int front)
+ * its foot as high as the HUD's bar, and when it is full it is green all
+ * through. Burning, or too little to use (under a fifth, then red), the
+ * bolt blinks fast. Drawn over the button. */
+static void draw_boost(float cx, float cy, float r, int w, int h)
 {
     float level = g_touch_boost > 1.0f ? 1.0f : g_touch_boost;
     int full = level >= 1.0f, burning = g_touch_boost_on, low = level < 0.2f && !burning;
-    int fast = (s_frame / 4) % 2, slow = (s_frame / 15) % 2;
+    int fast = (s_frame / 4) % 2, variant = V_FILL;
     float top, foot;
     int y0, y1;
 
-    if (!front) {
-        if (full && !burning && slow) {
-            draw_icon(I_FILL, V_FILL_HI, cx, cy, r, w, h);
-        }
-        return;
-    }
     if (level <= 0.0f || ((burning || low) && fast)) {
         return;
+    }
+    if (full && !burning) {
+        variant = V_FILL_FULL;
+    } else if (low) {
+        variant = V_FILL_LOW;
     }
     top = cy + 0.5f * r - level * r;
     foot = cy + 0.5f * r;
     y0 = (int)floorf(top);
     y1 = (int)ceilf(foot) + 1;
     rnd_scissor(1, (int)floorf(cx - r), h - y1, (int)ceilf(2.0f * r) + 1, y1 - y0);
-    draw_icon(I_BOLT, low ? V_FILL_LOW : V_FILL, cx, cy, r, w, h);
+    draw_icon(I_BOLT, variant, cx, cy, r, w, h);
     rnd_scissor(0, 0, 0, 0, 0);
 }
 
@@ -848,12 +845,9 @@ void touch_draw(int w, int h)
                          : (on & s_buttons[i].pad) ? V_LIT : V_NORMAL;
         place(i, w, h, &cx, &cy, &r);
         gauge = s_boost_gauge && !s_edit && s_buttons[i].icon == I_ACTION && g_touch_boost >= 0.0f;
-        if (gauge) {
-            draw_boost(cx, cy, r, w, h, 0);
-        }
         draw_icon(s_buttons[i].icon, variant, cx, cy, r, w, h);
         if (gauge) {
-            draw_boost(cx, cy, r, w, h, 1);
+            draw_boost(cx, cy, r, w, h);
         }
     }
     if (s_edit) {
