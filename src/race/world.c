@@ -526,6 +526,7 @@ void race_draw_view(const struct scene *sc, struct scene_obj *const *objs, int n
     double vw, ox;
 
     if (g_soft3d) {
+        gfx_shade_end();
         soft3d_race_view(first);
         return;
     }
@@ -555,6 +556,9 @@ void race_draw_view(const struct scene *sc, struct scene_obj *const *objs, int n
     }
     ox = (vw - g_screen_width) / 2;
     if (first) {
+        /* What the HUD's shade does to the 3D under it (lisa/gfx.h): the
+         * levels, with the columns the 3D has past the screen's. */
+        gfx_shade_begin(g_screen_width, g_screen_height, ox, g_back_buffer, g_level_pan);
         gl3d_view_begin(w, h, vw, g_screen_height);
     } else {
         gl3d_view_resume();

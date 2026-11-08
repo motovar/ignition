@@ -381,7 +381,7 @@ static u8 cone_level(int x, int c)
  * The iris: a circle of radius step * 4 (of 320) about the screen's
  * middle; outside it the back buffer goes through MENU.TAB's darker
  * rows, from the cone table. The 3D under the back buffer's colour 0
- * is covered by the shade of colour 0, not shaded. */
+ * is darkened by the shade of the level (lisa/gfx.h). */
 void race_iris(int step)
 {
     int s = g_screen_width / 320, w = g_screen_width, h = g_screen_height;
@@ -402,11 +402,24 @@ void race_iris(int step)
         if (x > w / 2 + 4 || y < 0 || y >= h) {
             continue;
         }
-        for (col = 0; col < w; col++) {
-            u8 *p = &g_back_buffer[y * w + col];
+        /* With a layered 3D the iris is the rows of the table over it
+         * too, for the clear pixels of the screen and the columns the 3D
+         * has past it (lisa/gfx.h). */
+        for (col = -(g_gfx_shade != NULL ? g_gfx_shade_ox : 0);
+             col < w + (g_gfx_shade != NULL ? g_gfx_shade_ox : 0); col++) {
             u8 level = cone_level(x, col - w / 2);
 
-            *p = g_level_pan[level << 8 | *p];
+            if (col < 0 || col >= w) {
+                gfx_shade_set(col, y, level, 1);
+            } else {
+                u8 *p = &g_back_buffer[y * w + col];
+
+                if (g_gfx_shade != NULL && *p == 0) {
+                    gfx_shade_set(col, y, level, 1);
+                } else {
+                    *p = g_level_pan[level << 8 | *p];
+                }
+            }
         }
     }
 }
@@ -1296,4 +1309,5 @@ void race_end(void)
     /* The next race presents once before it draws its view: not this
      * race's last view. */
     video_set_layer(0, NULL);
+    gfx_shade_end();
 }
