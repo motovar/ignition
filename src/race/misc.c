@@ -545,7 +545,16 @@ static void box_done(u8 *b, int rows, int dy)
             dst = g_back_buffer + (y0 + y) * g_screen_width;
             for (x = 0; x < w; x++) {
                 if (x0 + x >= 0 && x0 + x < g_screen_width) {
-                    dst[x0 + x] = g_level_pan[src[x / 2] << 8 | dst[x0 + x]];
+                    u8 sp = src[x / 2];
+
+                    /* Over a layered 3D's clear buffer: its pixel's row
+                     * of the table, on the GPU (lisa/gfx.h). */
+                    if (g_gfx_shade != NULL && g_gfx_shade_table == g_level_pan
+                        && dst[x0 + x] == 0 && sp != 0) {
+                        gfx_shade_set(x0 + x, y0 + y, sp, 0);
+                    } else {
+                        dst[x0 + x] = g_level_pan[sp << 8 | dst[x0 + x]];
+                    }
                 }
             }
         }
