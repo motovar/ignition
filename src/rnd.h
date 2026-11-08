@@ -42,14 +42,19 @@ enum { RND_R8, RND_RG8, RND_RGB8, RND_RGBA8 };
  *            colour, mode, -
  *   PARTICLE as DYN                   0 pages, 1 rows (256 x 1 RGBA8)
  *   LAYER    none (a quad)            0 an RGBA8 layer
+ *   SHADE    none (a quad)            0 indices, 1 palette, 2 table (256 x
+ *                                     256 R8), 3 levels (RG8: two shade
+ *                                     rows to put the index through, 0 for
+ *                                     none)
  *
  * The shaders and what the uniforms mean are in the backends. */
 enum { RND_CANVAS, RND_PRESENT, RND_OVER, RND_MESH, RND_DYN, RND_RASTER, RND_PARTICLE, RND_LAYER,
-       RND_PROGRAMS };
+       RND_SHADE, RND_PROGRAMS };
 
 /* Uniforms, by the program that has them: CANVAS LSIZE, OFF (vec2),
  * MODE (0 or 1); PRESENT and OVER RECT (vec4); MESH MATRIX (mat4,
- * column major); DYN USE_TABLE (0 or 1); RASTER SIZE, OFF (vec2). */
+ * column major); DYN USE_TABLE (0 or 1); RASTER SIZE, OFF (vec2); SHADE RECT and
+ * SIZE (vec2: scale and offset of the levels' column for the quad's u). */
 enum { RND_U_LSIZE, RND_U_OFF, RND_U_MODE, RND_U_RECT, RND_U_MATRIX, RND_U_USE_TABLE,
        RND_U_SIZE, RND_UNIFORMS };
 

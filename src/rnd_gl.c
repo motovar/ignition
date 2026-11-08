@@ -400,6 +400,32 @@ static const char *s_layer_fs =
     "    o_color = texture(u_layer, v_uv);\n"
     "}\n";
 
+/* SHADE: PRESENT, with the index first put through the rows of a table
+ * that the levels name, as the original's draw of a shade over the pixel
+ * under it does: the first level's row, then the second's. u_size is the
+ * scale and offset of the levels' u (they cover more or less columns
+ * than the quad). */
+static const char *s_shade_fs =
+    "#version 150\n"
+    "uniform sampler2D u_index;\n"
+    "uniform sampler2D u_palette;\n"
+    "uniform sampler2D u_table;\n"
+    "uniform sampler2D u_levels;\n"
+    "uniform vec2 u_size;\n"
+    "in vec2 v_uv;\n"
+    "out vec4 o_color;\n"
+    "void main() {\n"
+    "    float i = texture(u_index, v_uv).r * 255.0;\n"
+    "    vec2 m = texture(u_levels, vec2(v_uv.x * u_size.x + u_size.y, v_uv.y)).rg * 255.0;\n"
+    "    if (m.x > 0.5) {\n"
+    "        i = texelFetch(u_table, ivec2(int(i + 0.5), int(m.x + 0.5)), 0).r * 255.0;\n"
+    "    }\n"
+    "    if (m.y > 0.5) {\n"
+    "        i = texelFetch(u_table, ivec2(int(i + 0.5), int(m.y + 0.5)), 0).r * 255.0;\n"
+    "    }\n"
+    "    o_color = vec4(texture(u_palette, vec2((i + 0.5) / 256.0, 0.5)).rgb, 1.0);\n"
+    "}\n";
+
 /* RASTER: pixels in, the index out. Modes: 0 the texel, 1 the colour,
  * 2 the texel and 3 the colour through the table with the pixel under
  * them. Vertices go half a pixel left and up, as the original fills a
@@ -460,6 +486,7 @@ static const struct {
       "o_index", 0 },
     { { 4, 2, 3, 0 }, { "a_pos", "a_uv", "a_info" }, { "u_pages", "u_table" }, "o_color", 0 },
     { { 0 }, { NULL }, { "u_layer" }, "o_color", 0 },
+    { { 0 }, { NULL }, { "u_index", "u_palette", "u_table", "u_levels" }, "o_color", 0 },
 };
 
 static const char *s_uniform_names[RND_UNIFORMS] = {
@@ -624,6 +651,7 @@ int rnd_init(void)
         { s_present_vs, s_over_fs }, { s_mesh_vs, s_mesh_fs },
         { s_dyn_vs, s_dyn_fs }, { s_raster_vs, s_raster_fs },
         { s_dyn_vs, s_particle_fs }, { s_present_vs, s_layer_fs },
+        { s_present_vs, s_shade_fs },
     };
     int p;
 

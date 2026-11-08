@@ -4,11 +4,15 @@
 
 #include <string.h>
 
+#include <stdlib.h>
+
 #include "gfx.h"
+#include "lisa/gfx.h"
 #include "rnd.h"
 #include "prof.h"
 
 static unsigned s_index_tex;    /* R8, the surface */
+static unsigned s_shade_levels, s_shade_table;   /* RG8 levels and the table, see shaded_layer */
 static unsigned s_palette_tex;  /* 256 x 1 RGB8 */
 static unsigned s_snap_tex;     /* R8, the screen as the 3D left it */
 static int s_draw_w, s_draw_h;
@@ -66,6 +70,9 @@ int gfx_init(void)
 
 void gfx_shutdown(void)
 {
+    rnd_texture_free(s_shade_levels);
+    rnd_texture_free(s_shade_table);
+    s_shade_levels = s_shade_table = 0;
     {
         int i;
 
@@ -180,6 +187,43 @@ static void draw_corners(const float rect[4], int w, int h)
     }
 }
 
+/* The 3D, with the HUD's shade and the iris on it (lisa/gfx.h): its
+ * index through the table's rows that the levels name, as the original
+ * has them over the pixel under them. 0 when there are none. */
+static int shaded_layer(unsigned layer, const float whole[4])
+{
+    int mw = g_gfx_shade_w, mh = g_gfx_shade_h;
+    float size[2];
+
+    if (g_gfx_shade == NULL || !g_gfx_shade_used || g_gfx_shade_table == NULL || mw <= 0
+        || mh <= 0) {
+        return 0;
+    }
+    if (s_shade_levels == 0) {
+        s_shade_levels = rnd_texture(RND_RG8, mw, mh, g_gfx_shade, mw);
+    } else {
+        rnd_texture_set(s_shade_levels, mw, mh, g_gfx_shade, mw);
+    }
+    if (s_shade_table == 0) {
+        s_shade_table = rnd_texture(RND_R8, 256, 256, g_gfx_shade_table, 256);
+    } else {
+        rnd_texture_set(s_shade_table, 256, 256, g_gfx_shade_table, 256);
+    }
+    /* The quad's u over the levels: the layer is the screen's columns and
+     * ox_f on each side, the levels ox (a whole number) on each side. */
+    size[0] = (float)((mw - 2 * g_gfx_shade_ox + 2 * g_gfx_shade_ox_f) / mw);
+    size[1] = (float)((g_gfx_shade_ox - g_gfx_shade_ox_f) / mw);
+    rnd_use(RND_SHADE);
+    rnd_uniform(RND_U_RECT, whole);
+    rnd_uniform(RND_U_SIZE, size);
+    rnd_texture_unit(0, layer);
+    rnd_texture_unit(1, s_palette_tex);
+    rnd_texture_unit(2, s_shade_table);
+    rnd_texture_unit(3, s_shade_levels);
+    rnd_draw(RND_STRIP, 0, 4);
+    return 1;
+}
+
 void gfx_draw_layers(unsigned layer, const u8 *pixels, const u8 *snapshot, int w, int h,
                      int pitch, const u8 *palette, float aspect)
 {
@@ -189,15 +233,18 @@ void gfx_draw_layers(unsigned layer, const u8 *pixels, const u8 *snapshot, int w
     prof_begin(PROF_H_PAL);
     set_palette(palette);
     prof_end(PROF_H_PAL);
+    screen_rect(aspect, rect);
     prof_begin(PROF_H_3D);
     rnd_depth(RND_DEPTH_OFF, 1);
 
     /* The 3D, the whole drawable. */
-    rnd_use(RND_PRESENT);
-    rnd_uniform(RND_U_RECT, whole);
-    rnd_texture_unit(0, layer);
-    rnd_texture_unit(1, s_palette_tex);
-    rnd_draw(RND_STRIP, 0, 4);
+    if (!shaded_layer(layer, whole)) {
+        rnd_use(RND_PRESENT);
+        rnd_uniform(RND_U_RECT, whole);
+        rnd_texture_unit(0, layer);
+        rnd_texture_unit(1, s_palette_tex);
+        rnd_draw(RND_STRIP, 0, 4);
+    }
 
     /* The 3D effects, blended over it. */
     if (s_overlay != 0) {
@@ -225,7 +272,6 @@ void gfx_draw_layers(unsigned layer, const u8 *pixels, const u8 *snapshot, int w
     }
     prof_end(PROF_H_SNAP);
     prof_begin(PROF_H_OVER);
-    screen_rect(aspect, rect);
     rnd_use(RND_OVER);
     rnd_uniform(RND_U_RECT, rect);
     rnd_texture_unit(0, s_index_tex);
