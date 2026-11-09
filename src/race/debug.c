@@ -23,6 +23,7 @@ static s32 s_recording;             /* 0x4949dc: "RECORDING!", never set */
 
 extern s32 r_494984;                /* race.c: this frame's rate */
 extern s32 r_563bec;                /* view.c: the replay camera's roll */
+extern s32 r_4949bc;                /* view.c: the replay camera's numbers on */
 
 /* 0x4133d0
  * `text` at x, y of dst (rows `pitch` apart) in a raw font: its height
@@ -66,6 +67,28 @@ static void debug_text(int x, int y, const char *text, u8 *dst, int pitch, const
 static void line(int x, int y, const char *text)
 {
     debug_text(x, y, text, g_back_buffer, g_screen_width, g_race_fnt, 0x14);
+}
+
+/* 0x43ec70
+ * The replay camera's numbers, one to a line down the left (r_4949bc on):
+ * its position, X, Y and Z, and its angles, X VIN and Y VIN. */
+void race_replay_numbers(void)
+{
+    char buf[32];
+
+    if (r_4949bc == 0) {
+        return;
+    }
+    snprintf(buf, sizeof(buf), "X %.0f", r_5532c0);
+    line(0, 0, buf);
+    snprintf(buf, sizeof(buf), "Y %.0f", r_5532b8);
+    line(0, 10, buf);
+    snprintf(buf, sizeof(buf), "Z %.0f", r_553288);
+    line(0, 20, buf);
+    snprintf(buf, sizeof(buf), "X VIN %.2f", r_6192f8);
+    line(0, 30, buf);
+    snprintf(buf, sizeof(buf), "Y VIN %.2f", r_619318);
+    line(0, 40, buf);
 }
 
 /* 0x43e9c0 */

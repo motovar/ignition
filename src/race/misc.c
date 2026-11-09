@@ -904,6 +904,52 @@ static void answer(int *any)
     }
 }
 
+/* 0x446040
+ * F12: the screen in a file, IGN0.TGA, IGN1.TGA and on (r_4949c8 counts them):
+ * a 256 colour TGA with its palette, the level's, from entry 0 at +8 of its
+ * file, as blue, green and red, then the back buffer's pixels. */
+static s32 r_4949c8;
+
+static void race_screenshot(void)
+{
+    char name[16];
+    u32 size = (u32)g_screen_width * g_screen_height + 0x312;
+    int pool = mem_pool_create(NULL);
+    u8 *b;
+    u32 i;
+    int k;
+
+    snprintf(name, sizeof(name), "IGN%d.TGA", r_4949c8++);
+    b = mem_alloc(pool, size);
+    b[0] = 0;
+    b[1] = 1;               /* a colour map, */
+    b[2] = 1;               /* with 8 bit indices */
+    b[3] = 0;
+    b[4] = 0;
+    b[5] = 0;
+    b[6] = 1;               /* 256 entries */
+    b[7] = 0x18;            /* of 24 bits */
+    for (i = 8; i < 0x10; i++) {
+        b[i] = 0;
+    }
+    b[0x10] = 8;
+    b[0x11] = 0x20;         /* the top row first */
+    b[0xc] = (u8)g_screen_width;
+    b[0xd] = (u8)(g_screen_width >> 8);
+    b[0xe] = (u8)g_screen_height;
+    b[0xf] = (u8)(g_screen_height >> 8);
+    for (k = 0; k < 256; k++) {
+        b[0x12 + 3 * k + 2] = g_level_col[3 * k + 8];
+        b[0x12 + 3 * k + 1] = g_level_col[3 * k + 9];
+        b[0x12 + 3 * k + 0] = g_level_col[3 * k + 10];
+    }
+    for (i = 0; i < (u32)g_screen_width * g_screen_height; i++) {
+        b[0x312 + i] = g_back_buffer[i];
+    }
+    file_write(name, b, size);
+    mem_pool_destroy(pool);
+}
+
 /* 0x420eb0
  * The race's keys: P and Esc pause, F12 a screenshot, Num+ and Num-
  * the screen size, = and - the view's size (before the finish), Enter
@@ -928,7 +974,7 @@ void race_hot_keys(void)
     }
     if (edge(0x58, &any)) {
         r_563c18 = 0x58;
-        STUB(0x446040, "race_screenshot");
+        race_screenshot();
     }
     if (edge(0x4e, &any)) {
         r_563c18 = 0x4e;

@@ -13,4 +13,7 @@ extern s32 r_4949b4;
 /* 0x43e9c0: the lines, over the race's screen. */
 void race_debug_lines(void);
 
+/* 0x43ec70: the replay camera's numbers, when r_4949bc is on. */
+void race_replay_numbers(void);
+
 #endif /* IGN_RACE_DEBUG_H */

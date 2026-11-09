@@ -141,14 +141,6 @@ static s32 tv_pick(void)
     return best;
 }
 
-/* 0x43ec70: the replay camera's numbers, a debug display. */
-static void replay_numbers(void)
-{
-    if (r_4949bc != 0) {
-        STUB(0x43ec70, "replay_numbers");
-    }
-}
-
 /* Whether the players are done: the one player, or both of two. */
 static int players_finished(void)
 {
@@ -497,7 +489,7 @@ void race_view(double dt)
             race_hud(1, 1);
         }
     }
-    replay_numbers();
+    race_replay_numbers();
     back_guard_check("the replay numbers");
     if (0.0 <= r_552e48 && r_552e48 < 100.0) {
         race_iris((s32)r_552e48);
